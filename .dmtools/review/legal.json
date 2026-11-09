@@ -1,0 +1,17 @@
+{
+  "name": "legal",
+  "roleLine": "Legal & Compliance Code Reviewer (consent / privacy / terms)",
+  "lens": ".dmtools/review/legal.lens.md",
+  "mayRaise": ["BLOCKING", "IMPORTANT", "SUGGESTION"],
+  "filterWeight": "high",
+  "rounds": ["first", "hunks"],
+  "triggerPaths": ["lib/", "src/", "consent", "gdpr", "privacy", "tracking", "telemetry", "user", "profile", "cookie"],
+  "options": {
+    "docsSources": {
+      "privacyPolicy": "docs/legal/privacy-policy.md",
+      "terms": "docs/legal/terms.md",
+      "confluenceSpace": null
+    },
+    "isQuestionsOnlyWithoutDocs": true
+  }
+}
