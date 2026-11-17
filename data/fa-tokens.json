@@ -1,0 +1,13 @@
+{
+  "pr-2": [
+    {
+      "leg": "review",
+      "at": "2026-11-17T09:50:41Z",
+      "prompt": 19089,
+      "completion": 4629,
+      "total": 23718,
+      "cacheRead": 202304,
+      "model": "glm-5.3-flash"
+    }
+  ]
+}
