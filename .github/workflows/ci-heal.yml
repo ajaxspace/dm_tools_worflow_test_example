@@ -159,6 +159,15 @@ jobs:
             export DMTOOLS_VERSION="$(gh release view --repo epam/dmtools-dart --json tagName --jq .tagName)"
             echo "dmtools CLI: latest resolved to ${DMTOOLS_VERSION}"
           fi
+          # FACTORY_ROOT: the agents repo's setup/ tree — install-fa-cli.sh
+          # dispatches setup/install.sh "fa:<ver>" through it at the end.
+          AG="$RUNNER_TEMP/dmtools-agents"
+          git init -q "$AG"
+          git -C "$AG" remote add origin https://github.com/IstiN/dmtools-agents
+          git -C "$AG" fetch -q --depth 1 origin main
+          git -C "$AG" sparse-checkout set setup
+          git -C "$AG" checkout -q FETCH_HEAD
+          export FACTORY_ROOT="$AG"
           bash "$KIT/scripts/install-dmtools-cli.sh"
           bash "$KIT/scripts/install-fa-cli.sh"
           echo "$HOME/.dmtools/bin" >> "$GITHUB_PATH"
