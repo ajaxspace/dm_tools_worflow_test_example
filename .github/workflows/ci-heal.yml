@@ -47,7 +47,10 @@ jobs:
           SICK=""
           mkdir -p /tmp/heal
           for WF in $MONITORED; do
+            # Probe the DEFAULT branch only: a green run from a PR head must
+            # never mask main's red streak (branch-protection semantics).
             DATA=$(gh run list -R "$GITHUB_REPOSITORY" --workflow "$WF" -L "$FAIL_STREAK" \
+                     --branch main \
                      --json databaseId,conclusion,headSha,displayTitle,url)
             CNT=$(echo "$DATA" | jq 'length')
             if [ "$CNT" -lt "$FAIL_STREAK" ]; then
