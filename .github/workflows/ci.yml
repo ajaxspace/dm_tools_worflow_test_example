@@ -1,0 +1,40 @@
+# PR CI — dispatch-only (factory contract, see machine-sm.yml ci-workflow input).
+# The machine loop's validation rules dispatch THIS workflow on PR heads;
+# pushes fire no CI on their own. The job name MUST stay 'test' — it feeds
+# the required branch-protection context (validation-checks: '["test"]').
+name: CI
+
+on:
+  workflow_dispatch:
+
+# One run per ref at a time; a fresh dispatch supersedes a stale one.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Dart SDK
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      # Separate step: a dependency-resolution failure is then visually
+      # distinct from a test failure in the logs.
+      - name: Resolve dependencies
+        run: dart pub get
+
+      # Expanded reporter: every test printed, failures carry the full
+      # expected/actual diff and stack trace — logs must answer "why red".
+      - name: Run tests
+        run: dart test --reporter expanded
