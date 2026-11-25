@@ -10,8 +10,6 @@
       "FA_PROVIDER_CONFIG": "{\"baseUrl\":\"https://api.z.ai/api/coding/paas/v4\",\"model\":\"glm-5.3-flash\",\"input\":[\"text\",\"image\"],\"apiKeyEnvVar\":\"ZAI_API_KEY\"}"
     },
     "inputJql": "",
-    "customParams": {
-      "dryRun": true
-    }
+    "customParams": {}
   }
 }
