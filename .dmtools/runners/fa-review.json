@@ -1,6 +1,6 @@
 {
   "parent": {
-    "path": "pr_review@latest"
+    "path": ".dmtools/packs/pr_review-0.1.370.zip"
   },
   "merge": [
     "params.cliPrompts"

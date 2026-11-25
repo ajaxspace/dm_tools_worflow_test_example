@@ -1,6 +1,6 @@
 {
   "parent": {
-    "path": "bug_development@latest"
+    "path": ".dmtools/packs/bug_development-0.1.369.zip"
   },
   "params": {
     "envVariables": {
