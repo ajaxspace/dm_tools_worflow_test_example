@@ -59,7 +59,15 @@ jobs:
             fi
             FAILS=$(echo "$DATA" | jq '[.[] | select(.conclusion=="failure" or .conclusion=="timed_out")] | length')
             if [ "$FAILS" -eq "$FAIL_STREAK" ]; then
-              echo "$WF: SICK ($FAILS/$FAIL_STREAK consecutive red)"
+              # Streak must live on the CURRENT head: reds on a stale sha are
+              # not an incident — main already moved, the fresh run will tell.
+              HEAD=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq '.sha')
+              TOPSHA=$(echo "$DATA" | jq -r '.[0].headSha')
+              if [ "$TOPSHA" != "$HEAD" ]; then
+                echo "$WF: reds are on stale sha ${TOPSHA:0:8}, head is ${HEAD:0:8} — verdict pending fresh run, skip"
+                continue
+              fi
+              echo "$WF: SICK ($FAILS/$FAIL_STREAK consecutive red on head ${TOPSHA:0:8})"
               SICK="$SICK $WF"
               echo "$DATA" | jq -c '.[]' > "/tmp/heal/runs-${WF//\//-}.jsonl"
             else
