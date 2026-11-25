@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .fah/
 .dart_tool
+heal-context.json
+input/
+outputs/

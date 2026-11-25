@@ -1,0 +1,199 @@
+# CI Heal — the self-heal kicker (spec: audit/self-heal-kicker-spec, layer H).
+# Probe MONITORED workflows; sickness = the latest FAIL_STREAK runs ALL failed
+# (consecutive — any green/cancel resets the streak; stale reds never re-fire
+# after a fix: branch-protection "latest run is the verdict" semantics).
+# Dedup: one incident = one issue — a workflow already covered by an OPEN
+# issue labeled wf:<name> is skipped, so a broken shared key does not spawn
+# five issues. Uncovered sick workflows go to the ci_analyst agent pack
+# (.dmtools/packs/ci_analyst-*.zip via runners/fa-analyst.json), which files
+# ONE issue labeled ci-heal + wf:<name> + agent:dev — the machine loop then
+# fixes it like any other issue and machine-merge closes it on the fix PR.
+name: 'CI Heal'
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  actions: read
+  issues: write
+  contents: read
+
+concurrency:
+  group: ci-heal
+  cancel-in-progress: false
+
+env:
+  # Monitored workflows (space-separated). v1: the PR test CI only.
+  MONITORED: 'ci.yml'
+  # Sickness threshold: N CONSECUTIVE latest failures.
+  FAIL_STREAK: '2'
+  # Failing-job log tail per run handed to the analyst.
+  LOG_TAIL_LINES: '200'
+
+jobs:
+  heal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout (for .dmtools/config.js machineAuthor)
+        uses: actions/checkout@v4
+
+      - name: Probe monitored workflows (2 consecutive reds = sick)
+        id: probe
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SICK=""
+          mkdir -p /tmp/heal
+          for WF in $MONITORED; do
+            DATA=$(gh run list -R "$GITHUB_REPOSITORY" --workflow "$WF" -L "$FAIL_STREAK" \
+                     --json databaseId,conclusion,headSha,displayTitle,url)
+            CNT=$(echo "$DATA" | jq 'length')
+            if [ "$CNT" -lt "$FAIL_STREAK" ]; then
+              echo "$WF: only $CNT run(s) — not enough history, skip"
+              continue
+            fi
+            FAILS=$(echo "$DATA" | jq '[.[] | select(.conclusion=="failure" or .conclusion=="timed_out")] | length')
+            if [ "$FAILS" -eq "$FAIL_STREAK" ]; then
+              echo "$WF: SICK ($FAILS/$FAIL_STREAK consecutive red)"
+              SICK="$SICK $WF"
+              echo "$DATA" | jq -c '.[]' > "/tmp/heal/runs-${WF//\//-}.jsonl"
+            else
+              echo "$WF: healthy (streak reset — latest green or mixed window)"
+            fi
+          done
+          SICK="$(echo $SICK | xargs)"   # trim
+          echo "sick=$SICK" >> "$GITHUB_OUTPUT"
+          if [ -z "$SICK" ]; then
+            echo "✅ all monitored workflows healthy — sleeping"
+          fi
+
+      - name: Ensure heal labels exist
+        if: steps.probe.outputs.sick != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh label create ci-heal -R "$GITHUB_REPOSITORY" --color D93F0B \
+            --description "Self-heal analyst issue" 2>/dev/null || true
+          for WF in ${{ steps.probe.outputs.sick }}; do
+            gh label create "wf:$WF" -R "$GITHUB_REPOSITORY" --color BFD4F2 \
+              --description "Affected workflow: $WF" 2>/dev/null || true
+          done
+
+      - name: Dedup — drop workflows already covered by an open heal issue
+        id: dedup
+        if: steps.probe.outputs.sick != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          UNCOVERED=""
+          for WF in ${{ steps.probe.outputs.sick }}; do
+            OPEN=$(gh issue list -R "$GITHUB_REPOSITORY" --label "wf:$WF" --state open \
+                     --json number --jq 'length')
+            if [ "$OPEN" -gt 0 ]; then
+              echo "$WF: already covered by an open heal issue — skip"
+            else
+              UNCOVERED="$UNCOVERED $WF"
+            fi
+          done
+          UNCOVERED="$(echo $UNCOVERED | xargs)"
+          echo "uncovered=$UNCOVERED" >> "$GITHUB_OUTPUT"
+          if [ -z "$UNCOVERED" ]; then
+            echo "✅ every sick workflow has an open heal issue — nothing to file"
+          fi
+
+      - name: Build analyst context (JSON per ci_analyst contract)
+        id: context
+        if: steps.dedup.outputs.uncovered != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          MA="$(grep -oE "machineAuthor:[[:space:]]*'[^']+'" .dmtools/config.js | head -1 | sed "s/.*'//; s/'//")"
+          echo "machineAuthor=$MA" >> "$GITHUB_OUTPUT"
+          : > /tmp/heal/ctx-runs.jsonl
+          for WF in ${{ steps.dedup.outputs.uncovered }}; do
+            FILE="/tmp/heal/runs-${WF//\//-}.jsonl"
+            while IFS= read -r ROW; do
+              RID=$(jq -r '.databaseId' <<<"$ROW")
+              CONC=$(jq -r '.conclusion' <<<"$ROW")
+              LOG=""
+              if [ "$CONC" = "failure" ] || [ "$CONC" = "timed_out" ]; then
+                LOG=$(gh run view "$RID" -R "$GITHUB_REPOSITORY" --log-failed 2>/dev/null \
+                        | tail -n "$LOG_TAIL_LINES" || echo "(log unavailable)")
+              fi
+              jq -cn --argjson row "$ROW" --arg wf "$WF" --arg log "$LOG" \
+                '{workflow:$wf, url:$row.url, sha:$row.headSha, conclusion:$row.conclusion, logTail:$log}' \
+                >> /tmp/heal/ctx-runs.jsonl
+            done < "$FILE"
+          done
+          WFS=$(echo ${{ steps.dedup.outputs.uncovered }} | tr ' ' '\n' | jq -R . | jq -s -c .)
+          jq -n --arg repo "$GITHUB_REPOSITORY" --arg ma "$MA" \
+                --argjson wfs "$WFS" --argjson runs "$(jq -s . /tmp/heal/ctx-runs.jsonl)" \
+                '{targetRepository:$repo, machineAuthor:$ma, dryRun:false,
+                  monitoredWorkflows:$wfs, runs:$runs}' > heal-context.json
+          jq -c 'del(.runs[].logTail)' heal-context.json   # shape check, sans logs
+
+      - name: Install factory kit + CLIs (dmtools, fa)
+        if: steps.dedup.outputs.uncovered != ''
+        env:
+          SOURCE_GITHUB_TOKEN: ${{ secrets.SOURCE_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          KIT="$RUNNER_TEMP/factory-kit"
+          git init -q "$KIT"
+          git -C "$KIT" remote add origin https://github.com/IstiN/dmtools-agentic-workflows
+          git -C "$KIT" fetch -q --depth 1 origin main
+          git -C "$KIT" checkout -q FETCH_HEAD
+          export DMTOOLS_GITHUB_TOKEN="$SOURCE_GITHUB_TOKEN"
+          bash "$KIT/scripts/install-dmtools-cli.sh"
+          bash "$KIT/scripts/install-fa-cli.sh"
+          echo "$HOME/.dmtools/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Run ci_analyst agent pack
+        if: steps.dedup.outputs.uncovered != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_GITHUB_TOKEN: ${{ secrets.SOURCE_GITHUB_TOKEN }}
+          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY || secrets.ZAI_CODE_KEY }}
+          AI_AGENT_PROVIDER: fa
+          DEFAULT_TRACKER: github
+        run: |
+          set -euo pipefail
+          MA="${{ steps.context.outputs.machineAuthor }}"
+          WFLIST=$(echo ${{ steps.dedup.outputs.uncovered }} | tr ' ' ',')
+          mkdir -p input
+          {
+            echo "[ci-heal] $WFLIST: failing"
+            echo
+            echo "Analyze the failing CI runs described in heal-context.json."
+            echo "Classify adequate vs noise (SHA-aware: stale reds under a fresh green are noise)."
+            echo "Print the STRICT JSON verdict; if adequate, create ONE heal issue per the ci_analyst contract."
+            echo "dryRun=false."
+          } > input/ticket.md
+          CONTEXT_ID="ci-heal-${{ github.run_id }}"
+          dmtools run .dmtools/runners/fa-analyst.json \
+            --metadata "{\"contextId\":\"$CONTEXT_ID\"}" \
+            --customParams "{\"contextPath\":\"heal-context.json\",\"dryRun\":false,\"machineAuthor\":\"$MA\",\"targetRepository\":\"$GITHUB_REPOSITORY\"}"
+
+      - name: Surface the verdict in the run summary
+        if: steps.dedup.outputs.uncovered != '' && always()
+        run: |
+          {
+            if [ -f outputs/ci_analyst_result.json ]; then
+              echo '### ci_analyst result'
+              echo '```json'
+              cat outputs/ci_analyst_result.json
+              echo '```'
+            fi
+            if [ -f outputs/response.md ]; then
+              echo '### analyst response'
+              cat outputs/response.md
+            fi
+            [ -f outputs/response.md ] || [ -f outputs/ci_analyst_result.json ] || \
+              echo "_analyst produced no outputs_"
+          } >> "$GITHUB_STEP_SUMMARY"
