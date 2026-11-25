@@ -1,6 +1,6 @@
 {
   "parent": {
-    "path": "story_development@latest"
+    "path": ".dmtools/packs/story_development-0.1.369.zip"
   },
   "params": {
     "envVariables": {

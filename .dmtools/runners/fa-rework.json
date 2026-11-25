@@ -1,6 +1,6 @@
 {
   "parent": {
-    "path": "pr_rework@latest"
+    "path": ".dmtools/packs/pr_rework-0.1.369.zip"
   },
   "params": {
     "envVariables": {
