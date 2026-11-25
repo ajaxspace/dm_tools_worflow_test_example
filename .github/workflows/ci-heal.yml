@@ -152,7 +152,11 @@ jobs:
           git -C "$KIT" remote add origin https://github.com/IstiN/dmtools-agentic-workflows
           git -C "$KIT" fetch -q --depth 1 origin main
           git -C "$KIT" checkout -q FETCH_HEAD
-          bash -e "$KIT/scripts/resolve-dmtools-version.sh"
+          if [ "${DMTOOLS_VERSION}" = "latest" ]; then
+            # GITHUB_ENV writes only reach LATER steps — resolve inline instead
+            export DMTOOLS_VERSION="$(gh release view --repo epam/dmtools-dart --json tagName --jq .tagName)"
+            echo "dmtools CLI: latest resolved to ${DMTOOLS_VERSION}"
+          fi
           bash "$KIT/scripts/install-dmtools-cli.sh"
           bash "$KIT/scripts/install-fa-cli.sh"
           echo "$HOME/.dmtools/bin" >> "$GITHUB_PATH"
