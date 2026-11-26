@@ -62,14 +62,16 @@ jobs:
           for F in .github/workflows/*.y*ml; do
             [ -e "$F" ] || continue
             BASE=$(basename "$F")
+            # Keys are FILENAMES — the stable unit identity (space-free, so
+            # the space-separated list survives; gh resolves filenames fine).
             case " $HEAL_EXCLUDE_MONITORED " in *" $BASE "*) continue ;; esac
-            NAME=$(awk -F': ' '/^name:/{print $2; exit}' "$F" | sed "s/^['\"]//; s/['\"]\$//")
-            KEY="${NAME:-${BASE%.yml}}"
-            case " $HEAL_EXCLUDE_MONITORED " in *" $KEY "*) continue ;; esac
             # LEG lanes are watched by the per-parameter group detector,
             # not by the same-head streak probe — keep them out of MONITORED.
-            case " $LEGS " in *" $KEY "*) continue ;; esac
-            LIST="$LIST $KEY"
+            # Match LEG entries against both the filename and the name: field
+            # (LEG_WORKFLOWS is name-based, the run-name contract scans it).
+            NAME=$(awk -F': ' '/^name:/{print $2; exit}' "$F" | sed "s/^['\"]//; s/['\"]\$//")
+            case " $LEGS " in *" $BASE "*|*" $NAME "*) continue ;; esac
+            LIST="$LIST $BASE"
           done
           LIST="$(echo "$LIST" | xargs)"
           echo "monitored discovered: $LIST"
