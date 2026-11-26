@@ -263,16 +263,15 @@ jobs:
           mkdir -p /tmp/heal
           : > /tmp/heal/leg-runs.jsonl
           FOUND=false
+          # Freshness guard: only runs dispatched AFTER the last commit on the
+          # checked-out branch count as live evidence. Post-fix kicks see only
+          # pre-fix failures until a fresh run exists - they must stay silent
+          # instead of re-filing a duplicate incident (gh-33 lesson).
+          CUT=$(git log -1 --format=%ct 2>/dev/null || echo 0)
           while IFS= read -r WF; do
             gh run list -R "$GITHUB_REPOSITORY" --workflow "$WF" -L 10 \
-              --json databaseId,displayTitle,conclusion,url \
-              --jq 'map({key: (.displayTitle | split(" ")[0]),
-                          conclusion: (.conclusion // "running"), url,
-                          id: .databaseId})
-                   | sort_by(.key) | group_by(.key) | .[]
-                   | select((.[0].conclusion == "failure") and
-                            (.[1].conclusion == "failure"))
-                   | .[0].key + "\t" + ([.[] | select(.conclusion == "failure")] | map(.id | tostring) | join(","))' \
+              --json databaseId,displayTitle,conclusion,url,createdAt \
+              --jq "map(select(((.createdAt | sub(\"[.][0-9]+\"; \") | fromdateiso8601)) > $CUT)) | map({key: (.displayTitle | split(\" \")[0]), conclusion: (.conclusion // \"running\"), url: .url, id: .databaseId}) | sort_by(.key) | group_by(.key) | .[] | select((.[0].conclusion == \"failure\") and (.[1].conclusion == \"failure\")) | .[0].key + \"\t\" + ([.[] | select(.conclusion == \"failure\")] | map(.id | tostring) | join(\",\"))" \
               > /tmp/heal/legs-sick.txt 2>/dev/null || true
             while IFS=$'\t' read -r KEY IDS; do
               [ -z "$KEY" ] && continue
