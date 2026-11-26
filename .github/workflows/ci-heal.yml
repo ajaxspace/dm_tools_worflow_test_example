@@ -26,7 +26,7 @@ env:
   # Monitored workflows (space-separated). Keys are FILENAMES — the stable
   # unit identity (GitHub: one file = one workflow; GitLab/ADO need their
   # own key vocabulary, see audit self-heal-problems-registry, portability).
-  MONITORED: 'ci.yml ci-extra.yml'
+  MONITORED: 'ci.yml ci-extra.yml ci-fetch.yml'
   # Sickness threshold: N CONSECUTIVE latest failures.
   FAIL_STREAK: '2'
   # Failing-job log tail per run handed to the analyst.
