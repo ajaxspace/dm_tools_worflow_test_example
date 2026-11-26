@@ -1,8 +1,9 @@
 # Parameterized drill lane — group-detector test for the self-heal.
 # run-name CONTRACT: the FIRST token is the stable group key
 # (`param-<mode>`), so interleaved green runs of other parameters never
-# reset this group's failure streak. Breaks only when dispatched with
-# mode=bad (bin/param_app.dart throws) — the shared test suite is untouched.
+# reset this group's failure streak. Every dispatched mode exits 0
+# (healed gh-31/gh-33: bin/param_app.dart summarizes any mode, including
+# ones without a data entry) — the shared test suite is untouched.
 name: Params Drill
 
 # Run-name contract: the FIRST token is the stable group key (param-<mode>)
@@ -13,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'bad = fail, anything else = ok'
+        description: 'mode to drill — any mode exits 0 (healed gh-31/gh-33)'
         required: false
         default: 'good'
         type: string
