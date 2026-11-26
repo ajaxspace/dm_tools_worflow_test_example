@@ -199,15 +199,23 @@ jobs:
               if [ "$PARAM" = "yes" ]; then NONCONFORM="$NONCONFORM $WF"; echo "$WF: parameterized but NO run-name"; continue
               else echo "$WF: no run-name, not parameterized - ok"; continue; fi
             fi
-            # First-token rule: the token must CONTAIN a placeholder ('{')
-            # (so the key varies per parameter) and must not embed run-varying
-            # values. A pure literal token (icon/word) hides the group.
-            FIRSTTOK=$(printf '%s' "$RN" | grep -oE "'[^']*'" | head -1 | sed "s/'//g" | sed 's/}.*//' | tr -d '[:space:]')
-            HASTOK=$(printf '%s' "$FIRSTTOK" | grep -c '{' || true)
-            NOISE=$(printf '%s' "$FIRSTTOK" | grep -icE "run_id|run_number|timestamp|head_sha" || true)
-            if [ "$PARAM" = "yes" ] && [ "$HASTOK" -eq 0 ]; then
+            # First-token rule: SOME quoted template must hold a placeholder
+            # ('{') whose literal prefix is empty or a short stable tag (gh-,
+            # pr-, param-), and the run-name must not embed run-varying values.
+            # (The first quote in an expression is often a comparison operand
+            # like '' - literals without '{' are skipped.)
+            CAND=0
+            for LIT in $(printf '%s' "$RN" | grep -oE "'[^']*'" | sed "s/^'//; s/'$//"); do
+              case "$LIT" in *'{'*)
+                PREFIX=$(printf '%s' "$LIT" | sed 's/[{$].*//' | tr -d '[:space:]')
+                printf '%s' "$PREFIX" | grep -qE '^[A-Za-z0-9_-]{0,6}$' && CAND=1
+                break
+              ;; esac
+            done
+            NOISE=$(printf '%s' "$RN" | grep -icE "run_id|run_number|timestamp|head_sha" || true)
+            if [ "$PARAM" = "yes" ] && [ "$CAND" -eq 0 ]; then
               NONCONFORM="$NONCONFORM $WF"
-              echo "$WF: parameterized, first run-name token is pure literal '$FIRSTTOK' - group hidden"
+              echo "$WF: parameterized, no leading group template found - group hidden"
             elif [ "$NOISE" -gt 0 ]; then
               NONCONFORM="$NONCONFORM $WF"
               echo "$WF: group token contains run-varying values - unstable key"
@@ -236,7 +244,7 @@ jobs:
                 --title "[ci-heal] run-name contract: group token must lead the run-name" \
                 --label "ci-heal,run-name-fix,agent:dev" \
                 ${MA:+--assignee "$MA"} \
-                --body-file /tmp/heal/body.md 2>&1 | tail -1
+                --body-file /tmp/heal/body.md 2>&1 | tail -1 || echo '::warning::run-name-fix issue creation failed - will retry next tick'
             else
               echo "run-name-fix issue already open - skip filing"
             fi
