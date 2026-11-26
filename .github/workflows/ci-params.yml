@@ -5,6 +5,10 @@
 # mode=bad (bin/param_app.dart throws) — the shared test suite is untouched.
 name: Params Drill
 
+# Run-name contract: the FIRST token is the stable group key (param-<mode>)
+# — the group detector keys groups on exactly this token.
+run-name: 'param-${{ inputs.mode }} — params drill'
+
 on:
   workflow_dispatch:
     inputs:
