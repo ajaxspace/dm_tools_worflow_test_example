@@ -187,5 +187,18 @@
       "source": "reported",
       "model": "glm-5.3-flash"
     }
+  ],
+  "issue-47": [
+    {
+      "leg": "dev",
+      "at": "2026-11-26T15:45:09Z",
+      "prompt": 40421,
+      "completion": 4302,
+      "total": 44723,
+      "cacheRead": 465920,
+      "requests": 17,
+      "source": "reported",
+      "model": "glm-5.3-flash"
+    }
   ]
 }
