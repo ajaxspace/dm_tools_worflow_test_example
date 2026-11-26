@@ -186,7 +186,7 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/heal
           NONCONFORM=""
-          for WF in $LEG_WORKFLOWS; do
+          while IFS= read -r WF; do
             FILE=$(grep -rl "^name: ['\"]\?$WF['\"]\?$" .github/workflows/ 2>/dev/null | head -1)
             if [ -z "$FILE" ]; then
               echo "$WF: workflow file not found - skip"; continue
@@ -209,6 +209,8 @@ jobs:
               echo "$WF: run-name contract ok (param=$PARAM)"
             fi
           done
+          done <<< "$LEG_WORKFLOWS"
+
           NONCONFORM="$(echo $NONCONFORM | xargs)"
           echo "nonconform=$NONCONFORM" >> "$GITHUB_OUTPUT"
           if [ -n "$NONCONFORM" ]; then
@@ -241,7 +243,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          for WF in $LEG_WORKFLOWS; do
+          while IFS= read -r WF; do
             gh run list -R "$GITHUB_REPOSITORY" --workflow "$WF" -L 10 \
               --json displayTitle,conclusion,url \
               --jq 'map({key: (.displayTitle | split(" ")[0]),
@@ -274,7 +276,10 @@ jobs:
                   --title "[ci-heal] leg $KEY failing repeatedly (needs-human)" \
                   --label "ci-heal,needs-human,agent:skip" \
                   --body-file /tmp/heal/legs-body.md 2>&1 | tail -1
-            done < /tmp/heal/legs-sick.txt
+  
+          done <<< "$LEG_WORKFLOWS"
+
+          done < /tmp/heal/legs-sick.txt
           done
 
       - name: Build analyst context (JSON per ci_analyst contract)
