@@ -24,13 +24,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Toolchain stamp (shared prep)
-        run: bash tool/prepare.sh
-
       - name: Install Dart SDK
         uses: dart-lang/setup-dart@v1
         with:
           sdk: stable
+
+      # The stamp shells out to `dart` and writes into .dart_tool/ — both
+      # exist only after setup-dart (gh-41: stamp-first died 127/exit 1).
+      - name: Toolchain stamp (shared prep)
+        run: bash tool/prepare.sh
 
       # Separate step: a dependency-resolution failure is then visually
       # distinct from a test failure in the logs.
