@@ -128,5 +128,18 @@
       "source": "reported",
       "model": "glm-5.3-flash"
     }
+  ],
+  "issue-41": [
+    {
+      "leg": "dev",
+      "at": "2026-11-26T13:13:47Z",
+      "prompt": 58124,
+      "completion": 13291,
+      "total": 71415,
+      "cacheRead": 793472,
+      "requests": 21,
+      "source": "reported",
+      "model": "glm-5.3-flash"
+    }
   ]
 }
