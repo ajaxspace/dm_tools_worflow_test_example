@@ -208,7 +208,6 @@ jobs:
             else
               echo "$WF: run-name contract ok (param=$PARAM)"
             fi
-          done
           done <<< "$LEG_WORKFLOWS"
 
           NONCONFORM="$(echo $NONCONFORM | xargs)"
@@ -237,12 +236,13 @@ jobs:
             fi
           fi
 
-      - name: Legs health — per-group 2-failures detector (run-name token keys)
+      - name: Legs health - per-group 2-failures detector (run-name token keys)
         id: legs
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          mkdir -p /tmp/heal
           while IFS= read -r WF; do
             gh run list -R "$GITHUB_REPOSITORY" --workflow "$WF" -L 10 \
               --json displayTitle,conclusion,url \
@@ -258,29 +258,24 @@ jobs:
               OPEN=$(gh issue list -R "$GITHUB_REPOSITORY" --label ci-heal --state open \
                        --json number,title --jq "[.[] | select(.title | contains(\"$KEY\"))] | length")
               if [ "$OPEN" -gt 0 ]; then
-                echo "$WF [$KEY]: already covered by an open heal issue — skip"; continue
+                echo "$WF [$KEY]: already covered by an open heal issue - skip"; continue
               fi
-              echo "$WF [$KEY]: 2 consecutive group failures — filing needs-human"
+              echo "$WF [$KEY]: 2 consecutive group failures - filing needs-human"
               gh label create needs-human -R "$GITHUB_REPOSITORY" --color F9D0C4 2>/dev/null || true
               gh label create agent:skip -R "$GITHUB_REPOSITORY" --color CCCCCC 2>/dev/null || true
+              {
+                echo '**Group `'"$KEY"'` (workflow `'"$WF"'`): the two most recent runs of this group both failed.**'
+                echo ''
+                echo '**Failed runs:**' $URLS
+                echo ''
+                echo 'Group keys come from the run-name first token (stable per parameter). A group failing twice in a row with no newer success is a chronic parameter failure - likely environment, quota, or a task the machine cannot close. Human triage required; no dev leg is assigned.'
+              } > /tmp/heal/legs-body.md
               gh issue create -R "$GITHUB_REPOSITORY" \
                 --title "[ci-heal] leg $KEY failing repeatedly (needs-human)" \
                 --label "ci-heal,needs-human,agent:skip" \
-                { echo '**Group `'"$KEY"'` (workflow `'"$WF"'`): the two most recent runs of this group both failed.**'
-                  echo ''
-                  echo '**Failed runs:**' $URLS
-                  echo ''
-                  echo 'Group keys come from the run-name first token (stable per parameter). A group failing twice in a row with no newer success is a chronic parameter failure - likely environment, quota, or a task the machine cannot close. Human triage required; no dev leg is assigned.'
-                } > /tmp/heal/legs-body.md
-                gh issue create -R "$GITHUB_REPOSITORY" \
-                  --title "[ci-heal] leg $KEY failing repeatedly (needs-human)" \
-                  --label "ci-heal,needs-human,agent:skip" \
-                  --body-file /tmp/heal/legs-body.md 2>&1 | tail -1
-  
+                --body-file /tmp/heal/legs-body.md 2>&1 | tail -1
+            done < /tmp/heal/legs-sick.txt
           done <<< "$LEG_WORKFLOWS"
-
-          done < /tmp/heal/legs-sick.txt
-          done
 
       - name: Build analyst context (JSON per ci_analyst contract)
         id: context
