@@ -328,7 +328,7 @@ jobs:
           done
           WFS=$(echo ${{ steps.anchors.outputs.todo }} | tr ' ' '\n' | jq -R . | jq -s -c .)
           jq -n --arg repo "$GITHUB_REPOSITORY" --arg ma "$MA" \
-                --argjson wfs "$WFS" --argjson runs "$(jq -s '. + $leg' /tmp/heal/ctx-runs.jsonl /tmp/heal/leg-runs.jsonl)" \
+                --argjson wfs "$WFS" --argjson runs "$(jq -s '.' /tmp/heal/ctx-runs.jsonl /tmp/heal/leg-runs.jsonl)" \
                 --argjson prev "$PREV" \
                 '{targetRepository:$repo, machineAuthor:$ma, dryRun:false,
                   monitoredWorkflows:$wfs, runs:$runs, previousIncidents:$prev}' > heal-context.json
