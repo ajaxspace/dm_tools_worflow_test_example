@@ -23,8 +23,10 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Monitored workflows (space-separated). v1: the PR test CI only.
-  MONITORED: 'ci.yml'
+  # Monitored workflows (space-separated). Keys are FILENAMES — the stable
+  # unit identity (GitHub: one file = one workflow; GitLab/ADO need their
+  # own key vocabulary, see audit self-heal-problems-registry, portability).
+  MONITORED: 'ci.yml ci-extra.yml'
   # Sickness threshold: N CONSECUTIVE latest failures.
   FAIL_STREAK: '2'
   # Failing-job log tail per run handed to the analyst.
@@ -116,11 +118,67 @@ jobs:
             echo "✅ every sick workflow has an open heal issue — nothing to file"
           fi
 
-      - name: Build analyst context (JSON per ci_analyst contract)
-        id: context
+      - name: Anchor gate — closed heal-issues make their reds history
+        id: anchors
         if: steps.dedup.outputs.uncovered != ''
         env:
           GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TODO=""
+          : > /tmp/heal/prev.jsonl
+          for WF in ${{ steps.dedup.outputs.uncovered }}; do
+            CISS=$(gh issue list -R "$GITHUB_REPOSITORY" --label "wf:$WF" --label ci-heal \
+                     --state closed --limit 1 --json number,title,closedAt --jq '.[0]' || true)
+            if [ -z "$CISS" ]; then
+              TODO="$TODO $WF"; continue
+            fi
+            NUM=$(jq -r '.number' <<<"$CISS")
+            # Closure commit: the state anchor (v2.3). Native "Closes" closes
+            # record commit_id; API closures leave it null — fall back to the
+            # merged fix PR of the dev leg's branch (verified live on #9).
+            CC=$(gh api "repos/$GITHUB_REPOSITORY/issues/$NUM/timeline" \
+                   --jq '[.[] | select(.event=="closed") | .commit_id][0]' 2>/dev/null || true)
+            if [ -z "$CC" ] || [ "$CC" = "null" ]; then
+              CC=$(gh pr list -R "$GITHUB_REPOSITORY" --state merged --head "ai/gh-$NUM" \
+                     --json mergeCommit --jq '.[0].mergeCommit.sha' 2>/dev/null || true)
+            fi
+            if [ -z "$CC" ] || [ "$CC" = "null" ]; then
+              echo "$WF: closed issue #$NUM has no knowable closure commit — treat as fresh"
+              TODO="$TODO $WF"; continue
+            fi
+            # SHA order is meaningless — freshness is ancestry (compare API):
+            # behind|identical = reds are the incident's own history; a red
+            # ahead|diverged of the closure is a fresh world.
+            FRESH=0
+            for FS in $(jq -r 'select(.conclusion=="failure" or .conclusion=="timed_out") | .sha' \
+                        "/tmp/heal/runs-${WF//\//-}.jsonl" | sort -u); do
+              ST=$(gh api "repos/$GITHUB_REPOSITORY/compare/$CC...$FS" --jq '.status' 2>/dev/null || echo unknown)
+              case "$ST" in ahead|diverged) FRESH=1;; esac
+            done
+            if [ "$FRESH" -eq 1 ]; then
+              echo "$WF: reds are newer than the closure of #$NUM — fresh incident"
+              TODO="$TODO $WF"
+              jq -c --arg sha "$CC" \
+                '{issue:.number,title:.title,closedAt:.closedAt,closedByCommit:$sha}' \
+                <<<"$CISS" >> /tmp/heal/prev.jsonl
+            else
+              echo "$WF: reds are at/before the closure of #$NUM — incident history, skip"
+            fi
+          done
+          TODO="$(echo $TODO | xargs)"
+          echo "todo=$TODO" >> "$GITHUB_OUTPUT"
+          echo "prev=$(jq -sc . /tmp/heal/prev.jsonl)" >> "$GITHUB_OUTPUT"
+          if [ -z "$TODO" ]; then
+            echo "✅ every sick workflow is covered by a closure anchor — sleeping"
+          fi
+
+      - name: Build analyst context (JSON per ci_analyst contract)
+        id: context
+        if: steps.anchors.outputs.todo != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREV: ${{ steps.anchors.outputs.prev }}
         run: |
           set -euo pipefail
           MA="$(sed -nE "s/.*machineAuthor:[[:space:]]*'([^']+)'.*/\1/p" .dmtools/config.js | head -1)"
@@ -129,7 +187,7 @@ jobs:
           fi
           echo "machineAuthor=$MA" >> "$GITHUB_OUTPUT"
           : > /tmp/heal/ctx-runs.jsonl
-          for WF in ${{ steps.dedup.outputs.uncovered }}; do
+          for WF in ${{ steps.anchors.outputs.todo }}; do
             FILE="/tmp/heal/runs-${WF//\//-}.jsonl"
             while IFS= read -r ROW; do
               RID=$(jq -r '.databaseId' <<<"$ROW")
@@ -144,15 +202,16 @@ jobs:
                 >> /tmp/heal/ctx-runs.jsonl
             done < "$FILE"
           done
-          WFS=$(echo ${{ steps.dedup.outputs.uncovered }} | tr ' ' '\n' | jq -R . | jq -s -c .)
+          WFS=$(echo ${{ steps.anchors.outputs.todo }} | tr ' ' '\n' | jq -R . | jq -s -c .)
           jq -n --arg repo "$GITHUB_REPOSITORY" --arg ma "$MA" \
                 --argjson wfs "$WFS" --argjson runs "$(jq -s . /tmp/heal/ctx-runs.jsonl)" \
+                --argjson prev "$PREV" \
                 '{targetRepository:$repo, machineAuthor:$ma, dryRun:false,
-                  monitoredWorkflows:$wfs, runs:$runs}' > heal-context.json
+                  monitoredWorkflows:$wfs, runs:$runs, previousIncidents:$prev}' > heal-context.json
           jq -c 'del(.runs[].logTail)' heal-context.json   # shape check, sans logs
 
       - name: Install factory kit + CLIs (dmtools, fa)
-        if: steps.dedup.outputs.uncovered != ''
+        if: steps.anchors.outputs.todo != ''
         env:
           SOURCE_GITHUB_TOKEN: ${{ secrets.SOURCE_GITHUB_TOKEN }}
           # PAT, not github.token: fa ships from the PRIVATE harness repo —
@@ -188,7 +247,7 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Run ci_analyst agent pack
-        if: steps.dedup.outputs.uncovered != ''
+        if: steps.anchors.outputs.todo != ''
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_GITHUB_TOKEN: ${{ secrets.SOURCE_GITHUB_TOKEN }}
@@ -198,7 +257,7 @@ jobs:
         run: |
           set -euo pipefail
           MA="${{ steps.context.outputs.machineAuthor }}"
-          WFLIST=$(echo ${{ steps.dedup.outputs.uncovered }} | tr ' ' ',')
+          WFLIST=$(echo ${{ steps.anchors.outputs.todo }} | tr ' ' ',')
           mkdir -p input
           {
             echo "[ci-heal] $WFLIST: failing"
@@ -214,7 +273,7 @@ jobs:
             --customParams "{\"contextPath\":\"heal-context.json\",\"dryRun\":false,\"machineAuthor\":\"$MA\",\"targetRepository\":\"$GITHUB_REPOSITORY\"}"
 
       - name: Surface the verdict in the run summary
-        if: steps.dedup.outputs.uncovered != '' && always()
+        if: steps.anchors.outputs.todo != '' && always()
         run: |
           {
             if [ -f outputs/ci_analyst_result.json ]; then
