@@ -30,13 +30,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Toolchain stamp (shared prep)
-        run: bash tool/prepare.sh
-
       - name: Install Dart SDK
         uses: dart-lang/setup-dart@v1
         with:
           sdk: stable
+
+      # After setup-dart: the stamp shells out to `dart`, which is only on
+      # PATH once the SDK is installed (gh-43).
+      - name: Toolchain stamp (shared prep)
+        run: bash tool/prepare.sh
 
       - name: Resolve dependencies
         run: dart pub get
