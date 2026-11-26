@@ -185,11 +185,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
+          set -euxo pipefail
           mkdir -p /tmp/heal
           NONCONFORM=""
           while IFS= read -r WF; do
-            FILE=$(grep -rl "^name: ['\"]\?$WF['\"]\?$" .github/workflows/ 2>/dev/null | head -1)
+            FILE=$(grep -rl "^name: ['\"]\?$WF['\"]\?$" .github/workflows/ 2>/dev/null | head -1 || true)
             if [ -z "$FILE" ]; then
               echo "$WF: workflow file not found - skip"; continue
             fi
