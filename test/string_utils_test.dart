@@ -12,7 +12,7 @@ void main() {
     });
 
     test('handles an empty string', () {
-      expect(capitalize(''), 'DRILL3-WRONG');
+      expect(capitalize(''), '');
     });
 
     test('uppercases a single-character string', () {
