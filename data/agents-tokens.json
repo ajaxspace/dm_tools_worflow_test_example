@@ -152,5 +152,18 @@
       "source": "reported",
       "model": "glm-5.3-flash"
     }
+  ],
+  "issue-43": [
+    {
+      "leg": "dev",
+      "at": "2026-11-26T13:18:24Z",
+      "prompt": 41172,
+      "completion": 8927,
+      "total": 50099,
+      "cacheRead": 918528,
+      "requests": 29,
+      "source": "reported",
+      "model": "glm-5.3-flash"
+    }
   ]
 }
