@@ -223,9 +223,11 @@ jobs:
               echo "$WF: run-name contract ok (param=$PARAM)"
             fi
           done <<< "$LEG_WORKFLOWS"
+          echo "scan: loop finished"
 
-          NONCONFORM="$(echo $NONCONFORM | xargs)"
-          echo "nonconform=$NONCONFORM" >> "$GITHUB_OUTPUT"
+          NONCONFORM="$(printf '%s' "$NONCONFORM" | xargs -r || true)"
+          printf 'nonconform=%s\n' "$NONCONFORM" >> "$GITHUB_OUTPUT"
+          echo "scan: nonconform=[$NONCONFORM]"
           if [ -n "$NONCONFORM" ]; then
             MA="$(sed -nE "s/.*machineAuthor:[[:space:]]*'([^']+)'.*/\1/p" .dmtools/config.js | head -1)"
             DEDUP=$(gh issue list -R "$GITHUB_REPOSITORY" --label run-name-fix --state open --json number --jq 'length')
@@ -249,6 +251,8 @@ jobs:
               echo "run-name-fix issue already open - skip filing"
             fi
           fi
+          echo "scan: step complete"
+          exit 0
 
       - name: Legs health - per-group 2-failures detector (collect for analyst)
         id: legs
