@@ -241,53 +241,55 @@ jobs:
             fi
           fi
 
-      - name: Legs health - per-group 2-failures detector (run-name token keys)
+      - name: Legs health - per-group 2-failures detector (collect for analyst)
         id: legs
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/heal
+          : > /tmp/heal/leg-runs.jsonl
+          FOUND=false
           while IFS= read -r WF; do
             gh run list -R "$GITHUB_REPOSITORY" --workflow "$WF" -L 10 \
-              --json displayTitle,conclusion,url \
+              --json databaseId,displayTitle,conclusion,url \
               --jq 'map({key: (.displayTitle | split(" ")[0]),
-                          conclusion: (.conclusion // "running"), url})
+                          conclusion: (.conclusion // "running"), url,
+                          id: .databaseId})
                    | sort_by(.key) | group_by(.key) | .[]
                    | select((.[0].conclusion == "failure") and
                             (.[1].conclusion == "failure"))
-                   | .[0].key + "\t" + (map(select(.conclusion == "failure") | .url) | join(" "))' \
+                   | .[0].key + "\t" + ([.[] | select(.conclusion == "failure")] | map(.id | tostring) | join(","))' \
               > /tmp/heal/legs-sick.txt 2>/dev/null || true
-            while IFS=$'\t' read -r KEY URLS; do
+            while IFS=$'\t' read -r KEY IDS; do
               [ -z "$KEY" ] && continue
               OPEN=$(gh issue list -R "$GITHUB_REPOSITORY" --label ci-heal --state open \
-                       --json number,title --jq "[.[] | select(.title | contains(\"$KEY\"))] | length")
+                       --json number,body --jq "[.[] | select((.body // \"\") | contains(\"$KEY\"))] | length")
               if [ "$OPEN" -gt 0 ]; then
                 echo "$WF [$KEY]: already covered by an open heal issue - skip"; continue
               fi
-              echo "$WF [$KEY]: 2 consecutive group failures - filing needs-human"
-              gh label create needs-human -R "$GITHUB_REPOSITORY" --color F9D0C4 2>/dev/null || true
-              gh label create agent:skip -R "$GITHUB_REPOSITORY" --color CCCCCC 2>/dev/null || true
-              {
-                echo '**Group `'"$KEY"'` (workflow `'"$WF"'`): the two most recent runs of this group both failed.**'
-                echo ''
-                echo '**Failed runs:**' $URLS
-                echo ''
-                echo 'Group keys come from the run-name first token (stable per parameter). A group failing twice in a row with no newer success is a chronic parameter failure - likely environment, quota, or a task the machine cannot close. Human triage required; no dev leg is assigned.'
-              } > /tmp/heal/legs-body.md
-              gh issue create -R "$GITHUB_REPOSITORY" \
-                --title "[ci-heal] leg $KEY failing repeatedly (needs-human)" \
-                --label "ci-heal,needs-human,agent:skip" \
-                --body-file /tmp/heal/legs-body.md 2>&1 | tail -1
+              echo "$WF [$KEY]: 2 consecutive group failures - handing to analyst"
+              FOUND=true
+              for RID in $(echo "$IDS" | tr ',' ' '); do
+                TAIL=$(gh run view "$RID" -R "$GITHUB_REPOSITORY" --log-failed 2>/dev/null | tail -n 120 || echo "(log unavailable)")
+                TAIL_JSON=$(printf '%s' "$TAIL" | jq -Rs .)
+                jq -cn --arg wf "leg: $WF group $KEY" --arg url \
+                  "https://github.com/$GITHUB_REPOSITORY/actions/runs/$RID" \
+                  --arg sha "$RID" --arg log "$TAIL_JSON" \
+                  '{workflow:$wf, url:$url, sha:$sha, conclusion:"failure", logTail:($log | fromjson)}' \
+                  >> /tmp/heal/leg-runs.jsonl
+              done
             done < /tmp/heal/legs-sick.txt
           done <<< "$LEG_WORKFLOWS"
+          echo "found=$FOUND" >> "$GITHUB_OUTPUT"
 
       - name: Build analyst context (JSON per ci_analyst contract)
         id: context
-        if: steps.anchors.outputs.todo != ''
+        if: steps.anchors.outputs.todo != '' || steps.legs.outputs.found == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PREV: ${{ steps.anchors.outputs.prev }}
+          LEGS: ${{ steps.legs.outputs.found }}
         run: |
           set -euo pipefail
           MA="$(sed -nE "s/.*machineAuthor:[[:space:]]*'([^']+)'.*/\1/p" .dmtools/config.js | head -1)"
@@ -313,14 +315,14 @@ jobs:
           done
           WFS=$(echo ${{ steps.anchors.outputs.todo }} | tr ' ' '\n' | jq -R . | jq -s -c .)
           jq -n --arg repo "$GITHUB_REPOSITORY" --arg ma "$MA" \
-                --argjson wfs "$WFS" --argjson runs "$(jq -s . /tmp/heal/ctx-runs.jsonl)" \
+                --argjson wfs "$WFS" --argjson runs "$(jq -s '. + $leg' /tmp/heal/ctx-runs.jsonl /tmp/heal/leg-runs.jsonl)" \
                 --argjson prev "$PREV" \
                 '{targetRepository:$repo, machineAuthor:$ma, dryRun:false,
                   monitoredWorkflows:$wfs, runs:$runs, previousIncidents:$prev}' > heal-context.json
           jq -c 'del(.runs[].logTail)' heal-context.json   # shape check, sans logs
 
       - name: Install factory kit + CLIs (dmtools, fa)
-        if: steps.anchors.outputs.todo != ''
+        if: steps.anchors.outputs.todo != '' || steps.legs.outputs.found == 'true'
         env:
           SOURCE_GITHUB_TOKEN: ${{ secrets.SOURCE_GITHUB_TOKEN }}
           # PAT, not github.token: fa ships from the PRIVATE harness repo —
@@ -356,7 +358,7 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Run ci_analyst agent pack
-        if: steps.anchors.outputs.todo != ''
+        if: steps.anchors.outputs.todo != '' || steps.legs.outputs.found == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_GITHUB_TOKEN: ${{ secrets.SOURCE_GITHUB_TOKEN }}
@@ -382,7 +384,7 @@ jobs:
             --customParams "{\"contextPath\":\"heal-context.json\",\"dryRun\":false,\"machineAuthor\":\"$MA\",\"targetRepository\":\"$GITHUB_REPOSITORY\"}"
 
       - name: Surface the verdict in the run summary
-        if: steps.anchors.outputs.todo != '' && always()
+        if: steps.anchors.outputs.todo != '' || steps.legs.outputs.found == 'true'
         run: |
           {
             if [ -f outputs/ci_analyst_result.json ]; then
