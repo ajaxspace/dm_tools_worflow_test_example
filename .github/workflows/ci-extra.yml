@@ -42,4 +42,4 @@ jobs:
       # the drill breaks it by editing THIS line (e.g. `dart testsss`),
       # ci.yml stays untouched — two lanes, two causes.
       - name: Run tests
-        run: dart testsss --reporter expanded
+        run: dart test --reporter expanded
