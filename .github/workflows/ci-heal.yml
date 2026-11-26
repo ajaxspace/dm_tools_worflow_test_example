@@ -141,7 +141,7 @@ jobs:
                    --jq '[.[] | select(.event=="closed") | .commit_id][0]' 2>/dev/null || true)
             if [ -z "$CC" ] || [ "$CC" = "null" ]; then
               CC=$(gh pr list -R "$GITHUB_REPOSITORY" --state merged --head "ai/gh-$NUM" \
-                     --json mergeCommit --jq '.[0].mergeCommit.sha' 2>/dev/null || true)
+                     --json mergeCommit --jq '.[0].mergeCommit.oid' 2>/dev/null || true)
             fi
             if [ -z "$CC" ] || [ "$CC" = "null" ]; then
               echo "$WF: closed issue #$NUM has no knowable closure commit — treat as fresh"
