@@ -29,8 +29,9 @@ env:
   MONITORED: 'ci.yml ci-extra.yml ci-fetch.yml'
   # Parameterized factory-owned legs (group-key lanes; see run-name contract
   # in the Run-name scan step below).
-  LEG_WORKFLOWS: 'AI Teammate
-Params Drill'
+  LEG_WORKFLOWS: |
+    AI Teammate
+    Params Drill
   # Sickness threshold: N CONSECUTIVE latest failures.
   FAIL_STREAK: '2'
   # Failing-job log tail per run handed to the analyst.
