@@ -1,0 +1,45 @@
+# Extra CI lane — a second monitored workflow for the self-heal polygon.
+# Same tests as ci.yml, independent failure surface: when the self-heal
+# drill breaks THIS workflow, it breaks the command itself (workflow-level
+# infra failure), not the test code — the two lanes then produce two
+# independent incidents with different cause classes.
+# Self-heal keys incidents by FILENAME (wf:ci-extra.yml), one workflow per
+# file is a GitHub invariant.
+name: CI Extra
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+# One run per ref at a time; a fresh dispatch supersedes a stale one.
+concurrency:
+  group: ci-extra-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Dart SDK
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Resolve dependencies
+        run: dart pub get
+
+      # Mirror of ci.yml's test step. Kept textually identical on purpose:
+      # the drill breaks it by editing THIS line (e.g. `dart testsss`),
+      # ci.yml stays untouched — two lanes, two causes.
+      - name: Run tests
+        run: dart test --reporter expanded
