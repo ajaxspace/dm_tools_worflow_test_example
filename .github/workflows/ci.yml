@@ -37,4 +37,4 @@ jobs:
       # Expanded reporter: every test printed, failures carry the full
       # expected/actual diff and stack trace — logs must answer "why red".
       - name: Run tests
-        run: dart test --reporter expanded
+        run: dart testt --reporter expanded
