@@ -23,10 +23,12 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Monitored workflows (space-separated). Keys are FILENAMES — the stable
-  # unit identity (GitHub: one file = one workflow; GitLab/ADO need their
-  # own key vocabulary, see audit self-heal-problems-registry, portability).
-  MONITORED: 'ci.yml ci-extra.yml ci-fetch.yml'
+  # MONITORED is auto-discovered by the "Discover monitored workflows" step:
+  # every repo workflow except ci-heal itself and the LEG lanes below.
+  # HEAL_ALLOW_MONITORED non-empty = probe ONLY that explicit list.
+  HEAL_ALLOW_MONITORED: ''
+  # Exclude-list: workflow FILENAMES or names, space-separated.
+  HEAL_EXCLUDE_MONITORED: 'ci-heal.yml' 
   # Parameterized factory-owned legs (group-key lanes; see run-name contract
   # in the Run-name scan step below).
   LEG_WORKFLOWS: |
@@ -45,10 +47,39 @@ jobs:
       - name: Checkout (for .dmtools/config.js machineAuthor)
         uses: actions/checkout@v4
 
+      - name: Discover monitored workflows (default: all but ci-heal + legs)
+        id: discover
+        run: |
+          set -euo pipefail
+          ALLOW="$(echo "${HEAL_ALLOW_MONITORED}" | xargs)"
+          if [ -n "$ALLOW" ]; then
+            echo "allow-list set — probing only: $ALLOW"
+            echo "monitored=$ALLOW" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          LEGS="$(echo "${LEG_WORKFLOWS}" | tr '\n' ' ' | xargs)"
+          LIST=""
+          for F in .github/workflows/*.y*ml; do
+            [ -e "$F" ] || continue
+            BASE=$(basename "$F")
+            case " $HEAL_EXCLUDE_MONITORED " in *" $BASE "*) continue ;; esac
+            NAME=$(awk -F': ' '/^name:/{print $2; exit}' "$F" | sed "s/^['\"]//; s/['\"]\$//")
+            KEY="${NAME:-${BASE%.yml}}"
+            case " $HEAL_EXCLUDE_MONITORED " in *" $KEY "*) continue ;; esac
+            # LEG lanes are watched by the per-parameter group detector,
+            # not by the same-head streak probe — keep them out of MONITORED.
+            case " $LEGS " in *" $KEY "*) continue ;; esac
+            LIST="$LIST $KEY"
+          done
+          LIST="$(echo "$LIST" | xargs)"
+          echo "monitored discovered: $LIST"
+          echo "monitored=$LIST" >> "$GITHUB_OUTPUT"
+
       - name: Probe monitored workflows (2 consecutive reds = sick)
         id: probe
         env:
           GH_TOKEN: ${{ github.token }}
+          MONITORED: ${{ steps.discover.outputs.monitored }}
         run: |
           set -euo pipefail
           SICK=""
