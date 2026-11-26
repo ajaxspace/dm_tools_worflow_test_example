@@ -30,6 +30,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Toolchain stamp (shared prep)
+        run: bash tool/prepare.sh
+
       - name: Install Dart SDK
         uses: dart-lang/setup-dart@v1
         with:
