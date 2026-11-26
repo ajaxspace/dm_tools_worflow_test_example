@@ -326,10 +326,13 @@ jobs:
                 >> /tmp/heal/ctx-runs.jsonl
             done < "$FILE"
           done
-          WFS=$(echo ${{ steps.anchors.outputs.todo }} | tr ' ' '\n' | jq -R . | jq -s -c .)
+          TODO='${{ steps.anchors.outputs.todo }}'
+          WFS='[]'
+          [ -n "$TODO" ] && WFS=$(echo "$TODO" | tr ' ' '\n' | jq -R . | jq -s -c .) || true
+          RUNS=$(jq -s '.' /tmp/heal/ctx-runs.jsonl /tmp/heal/leg-runs.jsonl) || RUNS='[]'
           jq -n --arg repo "$GITHUB_REPOSITORY" --arg ma "$MA" \
-                --argjson wfs "$WFS" --argjson runs "$(jq -s '.' /tmp/heal/ctx-runs.jsonl /tmp/heal/leg-runs.jsonl)" \
-                --argjson prev "$PREV" \
+                --argjson wfs "$WFS" --argjson runs "$RUNS" \
+                --argjson prev "${PREV:-[]}" \
                 '{targetRepository:$repo, machineAuthor:$ma, dryRun:false,
                   monitoredWorkflows:$wfs, runs:$runs, previousIncidents:$prev}' > heal-context.json
           jq -c 'del(.runs[].logTail)' heal-context.json   # shape check, sans logs
