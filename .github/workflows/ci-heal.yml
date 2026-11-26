@@ -184,27 +184,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          mkdir -p /tmp/heal
           NONCONFORM=""
           for WF in $LEG_WORKFLOWS; do
             FILE=$(grep -rl "^name: ['\"]\?$WF['\"]\?$" .github/workflows/ 2>/dev/null | head -1)
             if [ -z "$FILE" ]; then
-              echo "$WF: workflow file not found — skip"; continue
+              echo "$WF: workflow file not found - skip"; continue
             fi
             PARAM=$(grep -qE "inputs:|issues:" "$FILE" && echo yes || echo no)
-            RN=$(awk '/^run-name:/{f=1} f&&NR<200' "$FILE" | head -20)
+            RN=$(awk '/^run-name:/{f=1} f' "$FILE" | head -20)
             if [ -z "$RN" ]; then
               if [ "$PARAM" = "yes" ]; then NONCONFORM="$NONCONFORM $WF"; echo "$WF: parameterized but NO run-name"; continue
-              else echo "$WF: no run-name, not parameterized — ok"; continue; fi
+              else echo "$WF: no run-name, not parameterized - ok"; continue; fi
             fi
-            # First rendered token = literal prefix of the first quoted
-            # template before its first {placeholder}. Blank prefix means the
-            # token IS the parameter (conforming). A parameterized workflow
-            # whose first token is a literal (icon/word) hides the group.
             PREFIX=$(printf '%s' "$RN" | grep -oE "'[^']*'" | head -1 | sed "s/'//g" | sed 's/{.*//' | tr -d '[:space:]')
             NOISE=$(printf '%s' "$RN" | grep -cE "run_id|run_number|timestamp|head_sha" || true)
             if [ "$PARAM" = "yes" ] && [ -n "$PREFIX" ]; then
               NONCONFORM="$NONCONFORM $WF"
-              echo "$WF: parameterized, first run-name token is literal '$PREFIX' — group hidden"
+              echo "$WF: parameterized, first run-name token is literal '$PREFIX' - group hidden"
             elif [ "$NOISE" -gt 0 ]; then
               NONCONFORM="$NONCONFORM $WF"
               echo "$WF: run-name group token contains run-varying noise"
@@ -219,19 +216,22 @@ jobs:
             DEDUP=$(gh issue list -R "$GITHUB_REPOSITORY" --label run-name-fix --state open --json number --jq 'length')
             if [ "$DEDUP" -eq 0 ]; then
               gh label create run-name-fix -R "$GITHUB_REPOSITORY" --color FBCA04 2>/dev/null || true
+              {
+                echo '**Run-name contract** (self-heal observability): for every parameterized factory-owned workflow, the `run-name` FIRST token must be the stable group key - it must contain the dispatch parameter (`inputs.*` / issue number) and must NOT contain run-varying values (`run_id`, `run_number`, timestamps, SHAs).'
+                echo ''
+                echo "**Non-conforming:** $NONCONFORM"
+                echo ''
+                echo '**Fix:** restructure the `run-name` so the group token leads, e.g. `run-name: gh-${{ inputs.issue }} - dev` for an issue-parameterized leg. Plain (non-parameterized) workflows may use the workflow name as the token.'
+                echo ''
+                echo '**Why:** the self-heal legs-health detector groups runs by the first run-name token; without a leading group token a chronically failing parameter is invisible (interleaved greens reset raw streaks). The fix must ONLY adjust `run-name` - no behavioral changes. Use `Closes #<this issue>`.'
+              } > /tmp/heal/body.md
               gh issue create -R "$GITHUB_REPOSITORY" \
                 --title "[ci-heal] run-name contract: group token must lead the run-name" \
                 --label "ci-heal,run-name-fix,agent:dev" \
                 ${MA:+--assignee "$MA"} \
-                --body "**Run-name contract** (self-heal observability): for every parameterized factory-owned workflow, the \`run-name\` FIRST token must be the stable group key — it must contain the dispatch parameter (\`inputs.*\` / issue number) and must NOT contain run-varying values (\`run_id\`, \`run_number\`, timestamps, SHAs).
-
-**Non-conforming:** $NONCONFORM
-
-**Fix:** restructure the \`run-name\` so the group token leads, e.g. \`run-name: 'gh-\${{ inputs.issue }} — ⚒️ dev'\` for an issue-parameterized leg. Plain (non-parameterized) workflows may use the workflow name as the token.
-
-**Why:** the self-heal legs-health detector groups runs by the first run-name token; without a leading group token a chronically failing parameter is invisible (interleaved greens reset raw streaks). The fix must ONLY adjust \`run-name\` — no behavioral changes. Use \`Closes #<this issue>\`." 2>&1 | tail -1
+                --body-file /tmp/heal/body.md 2>&1 | tail -1
             else
-              echo "run-name-fix issue already open — skip filing"
+              echo "run-name-fix issue already open - skip filing"
             fi
           fi
 
@@ -264,11 +264,16 @@ jobs:
               gh issue create -R "$GITHUB_REPOSITORY" \
                 --title "[ci-heal] leg $KEY failing repeatedly (needs-human)" \
                 --label "ci-heal,needs-human,agent:skip" \
-                --body "**Group \`$KEY\` (workflow \`$WF\`): the two most recent runs of this group both failed.**
-
-Failed runs: $URLS
-
-Group keys come from the run-name first token (stable per parameter). A group failing twice in a row with no newer success is a chronic parameter failure — likely environment, quota, or a task the machine cannot close. Human triage required; no dev leg is assigned." 2>&1 | tail -1
+                { echo '**Group `'"$KEY"'` (workflow `'"$WF"'`): the two most recent runs of this group both failed.**'
+                  echo ''
+                  echo '**Failed runs:**' $URLS
+                  echo ''
+                  echo 'Group keys come from the run-name first token (stable per parameter). A group failing twice in a row with no newer success is a chronic parameter failure - likely environment, quota, or a task the machine cannot close. Human triage required; no dev leg is assigned.'
+                } > /tmp/heal/legs-body.md
+                gh issue create -R "$GITHUB_REPOSITORY" \
+                  --title "[ci-heal] leg $KEY failing repeatedly (needs-human)" \
+                  --label "ci-heal,needs-human,agent:skip" \
+                  --body-file /tmp/heal/legs-body.md 2>&1 | tail -1
             done < /tmp/heal/legs-sick.txt
           done
 
