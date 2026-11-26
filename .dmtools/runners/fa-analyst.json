@@ -1,6 +1,6 @@
 {
   "parent": {
-    "path": ".dmtools/packs/ci_analyst-0.0.1.zip"
+    "path": ".dmtools/packs/ci_analyst-0.0.2.zip"
   },
   "params": {
     "envVariables": {
