@@ -27,6 +27,9 @@ env:
   # unit identity (GitHub: one file = one workflow; GitLab/ADO need their
   # own key vocabulary, see audit self-heal-problems-registry, portability).
   MONITORED: 'ci.yml ci-extra.yml ci-fetch.yml'
+  # Parameterized factory-owned legs (group-key lanes; see run-name contract
+  # in the Run-name scan step below).
+  LEG_WORKFLOWS: 'AI Teammate'
   # Sickness threshold: N CONSECUTIVE latest failures.
   FAIL_STREAK: '2'
   # Failing-job log tail per run handed to the analyst.
@@ -174,6 +177,100 @@ jobs:
           if [ -z "$TODO" ]; then
             echo "✅ every sick workflow is covered by a closure anchor — sleeping"
           fi
+
+      - name: Run-name contract scan (factory repairs its own observability)
+        id: runame
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          NONCONFORM=""
+          for WF in $LEG_WORKFLOWS; do
+            FILE=$(grep -rl "^name: ['\"]\?$WF['\"]\?$" .github/workflows/ 2>/dev/null | head -1)
+            if [ -z "$FILE" ]; then
+              echo "$WF: workflow file not found — skip"; continue
+            fi
+            PARAM=$(grep -qE "inputs:|issues:" "$FILE" && echo yes || echo no)
+            RN=$(awk '/^run-name:/{f=1} f&&NR<200' "$FILE" | head -20)
+            if [ -z "$RN" ]; then
+              if [ "$PARAM" = "yes" ]; then NONCONFORM="$NONCONFORM $WF"; echo "$WF: parameterized but NO run-name"; continue
+              else echo "$WF: no run-name, not parameterized — ok"; continue; fi
+            fi
+            # First rendered token = literal prefix of the first quoted
+            # template before its first {placeholder}. Blank prefix means the
+            # token IS the parameter (conforming). A parameterized workflow
+            # whose first token is a literal (icon/word) hides the group.
+            PREFIX=$(printf '%s' "$RN" | grep -oE "'[^']*'" | head -1 | sed "s/'//g" | sed 's/{.*//' | tr -d '[:space:]')
+            NOISE=$(printf '%s' "$RN" | grep -cE "run_id|run_number|timestamp|head_sha" || true)
+            if [ "$PARAM" = "yes" ] && [ -n "$PREFIX" ]; then
+              NONCONFORM="$NONCONFORM $WF"
+              echo "$WF: parameterized, first run-name token is literal '$PREFIX' — group hidden"
+            elif [ "$NOISE" -gt 0 ]; then
+              NONCONFORM="$NONCONFORM $WF"
+              echo "$WF: run-name group token contains run-varying noise"
+            else
+              echo "$WF: run-name contract ok (param=$PARAM)"
+            fi
+          done
+          NONCONFORM="$(echo $NONCONFORM | xargs)"
+          echo "nonconform=$NONCONFORM" >> "$GITHUB_OUTPUT"
+          if [ -n "$NONCONFORM" ]; then
+            MA="$(sed -nE "s/.*machineAuthor:[[:space:]]*'([^']+)'.*/\1/p" .dmtools/config.js | head -1)"
+            DEDUP=$(gh issue list -R "$GITHUB_REPOSITORY" --label run-name-fix --state open --json number --jq 'length')
+            if [ "$DEDUP" -eq 0 ]; then
+              gh label create run-name-fix -R "$GITHUB_REPOSITORY" --color FBCA04 2>/dev/null || true
+              gh issue create -R "$GITHUB_REPOSITORY" \
+                --title "[ci-heal] run-name contract: group token must lead the run-name" \
+                --label "ci-heal,run-name-fix,agent:dev" \
+                ${MA:+--assignee "$MA"} \
+                --body "**Run-name contract** (self-heal observability): for every parameterized factory-owned workflow, the \`run-name\` FIRST token must be the stable group key — it must contain the dispatch parameter (\`inputs.*\` / issue number) and must NOT contain run-varying values (\`run_id\`, \`run_number\`, timestamps, SHAs).
+
+**Non-conforming:** $NONCONFORM
+
+**Fix:** restructure the \`run-name\` so the group token leads, e.g. \`run-name: 'gh-\${{ inputs.issue }} — ⚒️ dev'\` for an issue-parameterized leg. Plain (non-parameterized) workflows may use the workflow name as the token.
+
+**Why:** the self-heal legs-health detector groups runs by the first run-name token; without a leading group token a chronically failing parameter is invisible (interleaved greens reset raw streaks). The fix must ONLY adjust \`run-name\` — no behavioral changes. Use \`Closes #<this issue>\`." 2>&1 | tail -1
+            else
+              echo "run-name-fix issue already open — skip filing"
+            fi
+          fi
+
+      - name: Legs health — per-group 2-failures detector (run-name token keys)
+        id: legs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for WF in $LEG_WORKFLOWS; do
+            gh run list -R "$GITHUB_REPOSITORY" --workflow "$WF" -L 10 \
+              --json displayTitle,conclusion,url \
+              --jq 'map({key: (.displayTitle | split(" ")[0]),
+                          conclusion: (.conclusion // "running"), url})
+                   | sort_by(.key) | group_by(.key) | .[]
+                   | select((.[0].conclusion == "failure") and
+                            (.[1].conclusion == "failure"))
+                   | .[0].key + "\t" + (map(select(.conclusion == "failure") | .url) | join(" "))' \
+              > /tmp/heal/legs-sick.txt 2>/dev/null || true
+            while IFS=$'\t' read -r KEY URLS; do
+              [ -z "$KEY" ] && continue
+              OPEN=$(gh issue list -R "$GITHUB_REPOSITORY" --label ci-heal --state open \
+                       --json number,title --jq "[.[] | select(.title | contains(\"$KEY\"))] | length")
+              if [ "$OPEN" -gt 0 ]; then
+                echo "$WF [$KEY]: already covered by an open heal issue — skip"; continue
+              fi
+              echo "$WF [$KEY]: 2 consecutive group failures — filing needs-human"
+              gh label create needs-human -R "$GITHUB_REPOSITORY" --color F9D0C4 2>/dev/null || true
+              gh label create agent:skip -R "$GITHUB_REPOSITORY" --color CCCCCC 2>/dev/null || true
+              gh issue create -R "$GITHUB_REPOSITORY" \
+                --title "[ci-heal] leg $KEY failing repeatedly (needs-human)" \
+                --label "ci-heal,needs-human,agent:skip" \
+                --body "**Group \`$KEY\` (workflow \`$WF\`): the two most recent runs of this group both failed.**
+
+Failed runs: $URLS
+
+Group keys come from the run-name first token (stable per parameter). A group failing twice in a row with no newer success is a chronic parameter failure — likely environment, quota, or a task the machine cannot close. Human triage required; no dev leg is assigned." 2>&1 | tail -1
+            done < /tmp/heal/legs-sick.txt
+          done
 
       - name: Build analyst context (JSON per ci_analyst contract)
         id: context
