@@ -153,8 +153,10 @@ jobs:
             FRESH=0
             for FS in $(jq -r 'select(.conclusion=="failure" or .conclusion=="timed_out") | .sha' \
                         "/tmp/heal/runs-${WF//\//-}.jsonl" | sort -u); do
+              # Fresh = NOT behind: a red AT the closure commit is the
+              # "fix ineffective" case (v2.1 Q2) — re-analyze, never skip.
               ST=$(gh api "repos/$GITHUB_REPOSITORY/compare/$CC...$FS" --jq '.status' 2>/dev/null || echo unknown)
-              case "$ST" in ahead|diverged) FRESH=1;; esac
+              case "$ST" in behind) : ;; *) FRESH=1;; esac
             done
             if [ "$FRESH" -eq 1 ]; then
               echo "$WF: reds are newer than the closure of #$NUM — fresh incident"
