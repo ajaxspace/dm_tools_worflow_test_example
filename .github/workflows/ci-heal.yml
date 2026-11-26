@@ -123,7 +123,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          MA="$(grep -oE "machineAuthor:[[:space:]]*'[^']+'" .dmtools/config.js | head -1 | sed "s/.*'//; s/'//")"
+          MA="$(sed -nE "s/.*machineAuthor:[[:space:]]*'([^']+)'.*/\1/p" .dmtools/config.js | head -1)"
+          if [ -z "$MA" ]; then
+            echo "::warning::machineAuthor not found in .dmtools/config.js — analyst will skip issue assignment"
+          fi
           echo "machineAuthor=$MA" >> "$GITHUB_OUTPUT"
           : > /tmp/heal/ctx-runs.jsonl
           for WF in ${{ steps.dedup.outputs.uncovered }}; do
