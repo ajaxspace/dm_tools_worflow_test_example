@@ -29,7 +29,8 @@ env:
   MONITORED: 'ci.yml ci-extra.yml ci-fetch.yml'
   # Parameterized factory-owned legs (group-key lanes; see run-name contract
   # in the Run-name scan step below).
-  LEG_WORKFLOWS: 'AI Teammate'
+  LEG_WORKFLOWS: 'AI Teammate
+Params Drill'
   # Sickness threshold: N CONSECUTIVE latest failures.
   FAIL_STREAK: '2'
   # Failing-job log tail per run handed to the analyst.
@@ -197,14 +198,18 @@ jobs:
               if [ "$PARAM" = "yes" ]; then NONCONFORM="$NONCONFORM $WF"; echo "$WF: parameterized but NO run-name"; continue
               else echo "$WF: no run-name, not parameterized - ok"; continue; fi
             fi
-            PREFIX=$(printf '%s' "$RN" | grep -oE "'[^']*'" | head -1 | sed "s/'//g" | sed 's/{.*//' | tr -d '[:space:]')
-            NOISE=$(printf '%s' "$RN" | grep -cE "run_id|run_number|timestamp|head_sha" || true)
-            if [ "$PARAM" = "yes" ] && [ -n "$PREFIX" ]; then
+            # First-token rule: the token must CONTAIN a placeholder ('{')
+            # (so the key varies per parameter) and must not embed run-varying
+            # values. A pure literal token (icon/word) hides the group.
+            FIRSTTOK=$(printf '%s' "$RN" | grep -oE "'[^']*'" | head -1 | sed "s/'//g" | sed 's/}.*//' | tr -d '[:space:]')
+            HASTOK=$(printf '%s' "$FIRSTTOK" | grep -c '{' || true)
+            NOISE=$(printf '%s' "$FIRSTTOK" | grep -icE "run_id|run_number|timestamp|head_sha" || true)
+            if [ "$PARAM" = "yes" ] && [ "$HASTOK" -eq 0 ]; then
               NONCONFORM="$NONCONFORM $WF"
-              echo "$WF: parameterized, first run-name token is literal '$PREFIX' - group hidden"
+              echo "$WF: parameterized, first run-name token is pure literal '$FIRSTTOK' - group hidden"
             elif [ "$NOISE" -gt 0 ]; then
               NONCONFORM="$NONCONFORM $WF"
-              echo "$WF: run-name group token contains run-varying noise"
+              echo "$WF: group token contains run-varying values - unstable key"
             else
               echo "$WF: run-name contract ok (param=$PARAM)"
             fi

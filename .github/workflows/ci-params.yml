@@ -1,0 +1,39 @@
+# Parameterized drill lane — group-detector test for the self-heal.
+# run-name CONTRACT: the FIRST token is the stable group key
+# (`param-<mode>`), so interleaved green runs of other parameters never
+# reset this group's failure streak. Breaks only when dispatched with
+# mode=bad (bin/param_app.dart throws) — the shared test suite is untouched.
+name: Params Drill
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'bad = fail, anything else = ok'
+        required: false
+        default: 'good'
+        type: string
+
+concurrency:
+  group: params-drill-${{ inputs.mode }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Dart SDK
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Run params probe
+        run: dart run bin/param_app.dart "${{ inputs.mode }}"
