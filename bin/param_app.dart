@@ -3,7 +3,7 @@
 // Usage: dart run bin/param_app.dart <mode>
 void main(List<String> args) {
   final mode = args.isNotEmpty ? args.first : 'good';
-  final revisions = {'good': 12, 'green': 7};
+  final revisions = {'good': 12, 'green': 7, 'bad': 0};
   if (!revisions.containsKey(mode)) {
     throw StateError('no data for mode: $mode');
   }
