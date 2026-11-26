@@ -47,7 +47,7 @@ jobs:
       - name: Checkout (for .dmtools/config.js machineAuthor)
         uses: actions/checkout@v4
 
-      - name: Discover monitored workflows (default: all but ci-heal + legs)
+      - name: 'Discover monitored workflows (default = all but ci-heal + legs)'
         id: discover
         run: |
           set -euo pipefail
