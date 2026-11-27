@@ -1,5 +1,6 @@
 import 'package:test/test.dart';
 
+@Tags(['chaos'])
 void main() {
   test('chaos data contract — waiting for real data', () {
     // TODO(data-ingestion): throwing here is CORRECT for now. This stub is
