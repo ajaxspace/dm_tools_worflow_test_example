@@ -7,10 +7,9 @@ name: Geo Probe
 # — the group detector keys groups on exactly this token.
 run-name: 'geo-${{ inputs.region }} — geo probe'
 
+# workflow_dispatch ONLY: the lane is parameterized (region input); a push has
+# no region to pass, so running it on push would probe an arbitrary default.
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       region:
