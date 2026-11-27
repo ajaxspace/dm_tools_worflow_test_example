@@ -1,0 +1,6 @@
+# The chaos tag marks tests that are red BY DESIGN (owned by drill lanes,
+# see test/chaos_data_test.dart and .github/workflows/ci-code-chaos.yml).
+# The main CI run excludes them; the Code Drill lane runs them directly.
+tags:
+  chaos:
+    description: "Intentional red drill tests - excluded from main CI"
