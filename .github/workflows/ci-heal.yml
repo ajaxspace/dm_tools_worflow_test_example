@@ -41,7 +41,10 @@ env:
     AI Teammate
     Params Drill
     Geo Probe
-    Chaos Drill
+    # Chaos Drill stays OFF monitoring: intentional reds with no anchor would
+    # re-run the analyst every kick just to hear "noise" (token burn). Its
+    # v0.0.6+ behavior (intentional red -> noise) is verified; re-add only
+    # with an anchor story.
     Code Drill
   # Sickness threshold: N CONSECUTIVE latest failures.
   FAIL_STREAK: '2'
