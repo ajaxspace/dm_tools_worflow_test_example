@@ -48,10 +48,13 @@ String scanGroupPrefix(String runName) {
 
 /// The LEG_WORKFLOWS leg lanes declared in ci-heal.yml (the scan's input):
 /// the block-scalar lines indented under the key. Comment lines at the
-/// key's own indent are YAML structure, not legs.
+/// key's own indent are YAML structure, not legs. The block scalar may use
+/// the clip (`|`) or the strip (`|-`) chomping indicator — ci-heal.yml
+/// requires `|-` (gh-77): a trailing newline makes `done <<< "$LEG_WORKFLOWS"`
+/// iterate one extra empty lane.
 List<String> legWorkflows() {
   final yaml = File('.github/workflows/ci-heal.yml').readAsStringSync();
-  final block = RegExp(r'LEG_WORKFLOWS: \|\n((?: {4,}\S.*\n)+)')
+  final block = RegExp(r'LEG_WORKFLOWS: \|-?\n((?: {4,}\S.*\n)+)')
       .firstMatch(yaml)
       ?.group(1);
   if (block == null) return [];
