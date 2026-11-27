@@ -310,8 +310,7 @@ jobs:
             WFFILE=$(grep -rl "^name: ['\"]\?$WF['\"]\?$" .github/workflows/ 2>/dev/null | head -1 || true)
             CUT=$(git log -1 --format=%ct -- "${WFFILE:-.github/workflows/}" 2>/dev/null || echo 0)
             [ -z "$CUT" ] && CUT=0
-            CUTF='"'"'$CUT'"'"'
-            JQPROG='map(select(((.createdAt | sub("[.][0-9]+"; "") | fromdateiso8601)) > '"$CUT"')) | map({key: (if (.displayTitle | startswith("Merge pull request")) and (.conclusion == "failure") then "startup" else (.displayTitle | split(" ")[0]) end), conclusion: (.conclusion // "running"), url: .url, id: .databaseId}) | sort_by(.key) | group_by(.key) | .[] | select((.[0].conclusion == "failure") and ((.[1].conclusion == "failure") or .[0].key == "startup")) | .[0].key + "\t" + ([.[] | select(.conclusion == "failure")] | map(.id | tostring) | join(","))'
+            JQPROG='map(select(((.createdAt | sub("[.][0-9]+"; "") | fromdateiso8601)) > '"$CUT"')) | map(select(.conclusion != null)) | map({key: (if (.displayTitle | startswith("Merge pull request")) and (.conclusion == "failure") then "startup" else (.displayTitle | split(" ")[0]) end), conclusion: (.conclusion // "running"), url: .url, id: .databaseId}) | sort_by(.key) | group_by(.key) | .[] | select((.[0].conclusion == "failure") and ((.[1].conclusion == "failure") or .[0].key == "startup")) | .[0].key + "\t" + ([.[] | select(.conclusion == "failure")] | map(.id | tostring) | join(","))'
             gh run list -R "$GITHUB_REPOSITORY" --workflow "$WF" -L 10 \
               --json databaseId,displayTitle,conclusion,url,createdAt \
               --jq "$JQPROG" \
