@@ -35,7 +35,9 @@ env:
   HEAL_EXCLUDE_MONITORED: 'ci-heal.yml' 
   # Parameterized factory-owned legs (group-key lanes; see run-name contract
   # in the Run-name scan step below).
-  LEG_WORKFLOWS: |
+  # strip (-) is REQUIRED: a trailing newline makes `done <<< "$LEG_WORKFLOWS"`
+  # iterate one extra empty lane, which scans the WHOLE repo's runs
+  LEG_WORKFLOWS: |-
     AI Teammate
     Params Drill
     Geo Probe
@@ -307,6 +309,7 @@ jobs:
           # (the Geo Probe startup-failure case): each lane's fix lives in its
           # own file, so its own file's last-commit time is the honest anchor.
           while IFS= read -r WF; do
+            [ -z "$WF" ] && continue
             WFFILE=$(grep -rl "^name: ['\"]\?$WF['\"]\?$" .github/workflows/ 2>/dev/null | head -1 || true)
             # shallow checkout (depth=1) makes `git log -1 -- path` return HEAD
             # for ANY path, so CUT would always be "now" and every run would be
@@ -334,9 +337,10 @@ jobs:
               for RID in $(echo "$IDS" | tr ',' ' '); do
                 TAIL=$(gh run view "$RID" -R "$GITHUB_REPOSITORY" --log-failed 2>/dev/null | tail -n 120 || echo "(log unavailable)")
                 TAIL_JSON=$(printf '%s' "$TAIL" | jq -Rs .)
+                RUNSHA=$(gh run view "$RID" -R "$GITHUB_REPOSITORY" --json headSha --jq .headSha 2>/dev/null || echo "$RID")
                 jq -cn --arg wf "leg: $WF group $KEY" --arg url \
                   "https://github.com/$GITHUB_REPOSITORY/actions/runs/$RID" \
-                  --arg sha "$RID" --arg log "$TAIL_JSON" \
+                  --arg sha "${RUNSHA:-$RID}" --arg log "$TAIL_JSON" \
                   '{workflow:$wf, url:$url, sha:$sha, conclusion:"failure", logTail:($log | fromjson)}' \
                   >> /tmp/heal/leg-runs.jsonl
               done
