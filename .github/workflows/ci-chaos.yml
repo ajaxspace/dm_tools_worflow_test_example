@@ -3,7 +3,8 @@
 # deliberately "missing" configs — this lane is the live-fire target of the
 # self-heal loop. It is NOT broken. DO NOT "fix" it. DO NOT touch it.
 # Ownership: human. A pull request that "closes" this lane violates its design.
-name: 'chaos-${{ inputs.seed }} — chaos probe'
+name: Chaos Drill
+run-name: 'chaos-${{ inputs.seed }} — chaos probe'
 on:
   workflow_dispatch:
     inputs:
