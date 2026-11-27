@@ -41,11 +41,8 @@ env:
     AI Teammate
     Params Drill
     Geo Probe
+    Chaos Drill
     Code Drill
-    # Chaos Drill is OFF monitoring: its reds are noise by design and a noise
-    # verdict leaves no dedup anchor (nothing filed), so every kick would
-    # re-run the analyst just to hear "nothing to do" - pure token burn.
-    # Re-add only when the noise-tombstone anchor ships.
   # Sickness threshold: N CONSECUTIVE latest failures.
   FAIL_STREAK: '2'
   # Failing-job log tail per run handed to the analyst.
