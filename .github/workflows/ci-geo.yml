@@ -31,9 +31,16 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Probe region
+        env:
+          # gh-68: `region` is a workflow_dispatch-only input, so on push
+          # runs `${{ inputs.region }}` interpolates EMPTY and the guard
+          # collapsed to regions/.conf (9/9 red). Fall back to the dispatch
+          # default; the env mapping also keeps the free-typed dispatch
+          # input out of the bash script (no script-injection surface).
+          REGION: ${{ inputs.region || 'eu' }}
         run: |
-          test -f "regions/${{ inputs.region }}.conf" || {
-            echo "region config missing: regions/${{ inputs.region }}.conf" >&2
+          test -f "regions/${REGION}.conf" || {
+            echo "region config missing: regions/${REGION}.conf" >&2
             exit 1
           }
-          echo "probing region: ${{ inputs.region }}"
+          echo "probing region: ${REGION}"
