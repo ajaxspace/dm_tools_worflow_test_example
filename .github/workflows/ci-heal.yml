@@ -313,7 +313,8 @@ jobs:
             gh run list -R "$GITHUB_REPOSITORY" --workflow "$WF" -L 10 \
               --json databaseId,displayTitle,conclusion,url,createdAt \
               --jq "map(select(((.createdAt | sub(\"[.][0-9]+\"; \") | fromdateiso8601)) > $CUT)) | map({key: (if (.displayTitle | startswith(\"Merge pull request\")) and (.conclusion == \"failure\") then \"startup\" else (.displayTitle | split(\" \")[0]) end), conclusion: (.conclusion // \"running\"), url: .url, id: .databaseId}) | sort_by(.key) | group_by(.key) | .[] | select((.[0].conclusion == \"failure\") and ((.[1].conclusion == \"failure\") or .[0].key == \"startup\")) | .[0].key + \"\t\" + ([.[] | select(.conclusion == \"failure\")] | map(.id | tostring) | join(\",\"))" \
-              > /tmp/heal/legs-sick.txt 2>/dev/null || true
+              > /tmp/heal/legs-sick.txt || echo '::warning::legs jq failed - see log above'
+            echo "legs-sick.txt lines: $(wc -l < /tmp/heal/legs-sick.txt | tr -d ' ') | content: $(cat /tmp/heal/legs-sick.txt | tr '\n' '; ')"
             while IFS=$'\t' read -r KEY IDS; do
               [ -z "$KEY" ] && continue
               OPEN=$(gh issue list -R "$GITHUB_REPOSITORY" --label ci-heal --state open \
