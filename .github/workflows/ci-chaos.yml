@@ -1,0 +1,27 @@
+# CHAOS PROBE — READ ME BEFORE TOUCHING:
+# EVERYTHING in this file is intentional. Dynamic seeds, deterministic reds,
+# deliberately "missing" configs — this lane is the live-fire target of the
+# self-heal loop. It is NOT broken. DO NOT "fix" it. DO NOT touch it.
+# Ownership: human. A pull request that "closes" this lane violates its design.
+name: 'chaos-${{ inputs.seed }} — chaos probe'
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: 'dynamic chaos seed (resolved per dispatch — this is the point)'
+        required: false
+        default: 'drill-42'
+jobs:
+  chaos:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Chaos probe
+        run: |
+          SEED="${{ inputs.seed }}"
+          echo "chaos seed: $SEED (dynamic, resolved at dispatch time)"
+          # deterministic red by design: the chaos config is INTENTIONALLY absent
+          test -f "regions/chaos-${SEED}.conf" || {
+            echo "chaos config missing: regions/chaos-${SEED}.conf (by design, do not create it)"
+            exit 1
+          }
+          echo "chaos green for seed $SEED"
