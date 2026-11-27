@@ -41,6 +41,7 @@ env:
     AI Teammate
     Params Drill
     Geo Probe
+    Chaos Drill
   # Sickness threshold: N CONSECUTIVE latest failures.
   FAIL_STREAK: '2'
   # Failing-job log tail per run handed to the analyst.
