@@ -308,12 +308,15 @@ jobs:
           # own file, so its own file's last-commit time is the honest anchor.
           while IFS= read -r WF; do
             WFFILE=$(grep -rl "^name: ['\"]\?$WF['\"]\?$" .github/workflows/ 2>/dev/null | head -1 || true)
-            CUT=$(git log -1 --format=%ct -- "${WFFILE:-.github/workflows/}" 2>/dev/null || echo 0)
+            # shallow checkout (depth=1) makes `git log -1 -- path` return HEAD
+            # for ANY path, so CUT would always be "now" and every run would be
+            # stale. Use the commits API - it sees the real file history.
+            CUT=$(gh api "repos/$GITHUB_REPOSITORY/commits?path=${WFFILE}&per_page=1" --jq '.[0].commit.committer.date | sub("[.][0-9]+"; "") | fromdateiso8601' 2>/dev/null || echo 0)
             [ -z "$CUT" ] && CUT=0
             echo "lane=$WF wffile=${WFFILE:-NONE} cut=${CUT:-EMPTY}"
             gh run list -R "$GITHUB_REPOSITORY" --workflow "$WF" -L 10 --json databaseId,displayTitle,conclusion,createdAt > /tmp/heal/legs-raw.json || true
             echo "raw top3: $(jq -c 'map([.conclusion, (.displayTitle | .[0:24]), .createdAt | if type == "string" then .[11:19] else . end])' /tmp/heal/legs-raw.json 2>/dev/null || echo ERR)"
-            JQPROG='map(select(((.createdAt | sub("[.][0-9]+"; "") | fromdateiso8601)) > '"$CUT"')) | map(select(.conclusion != null)) | map({key: (if (.displayTitle | startswith("Merge pull request")) and (.conclusion == "failure") then "startup" else (.displayTitle | split(" ")[0]) end), conclusion: (.conclusion // "running"), url: .url, id: .databaseId}) | sort_by(.key) | group_by(.key) | .[] | select((.[0].conclusion == "failure") and ((.[1].conclusion == "failure") or .[0].key == "startup")) | .[0].key + "\t" + ([.[] | select(.conclusion == "failure")] | map(.id | tostring) | join(","))'
+            JQPROG='map(select(((.createdAt | sub("[.][0-9]+"; "") | fromdateiso8601)) > '"$CUT"')) | map(select(.conclusion != null and .conclusion != "")) | map({key: (if (.displayTitle | startswith("Merge pull request")) and (.conclusion == "failure") then "startup" else (.displayTitle | split(" ")[0]) end), conclusion: (.conclusion // "running"), url: .url, id: .databaseId}) | sort_by(.key) | group_by(.key) | .[] | select((.[0].conclusion == "failure") and ((.[1].conclusion == "failure") or .[0].key == "startup")) | .[0].key + "\t" + ([.[] | select(.conclusion == "failure")] | map(.id | tostring) | join(","))'
             gh run list -R "$GITHUB_REPOSITORY" --workflow "$WF" -L 10 \
               --json databaseId,displayTitle,conclusion,url,createdAt \
               --jq "$JQPROG" \
