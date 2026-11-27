@@ -8,6 +8,9 @@ name: Geo Probe
 run-name: 'geo-${{ inputs.region }} — geo probe'
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       region:
