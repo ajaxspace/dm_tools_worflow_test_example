@@ -453,8 +453,8 @@ jobs:
             echo "[ci-heal] $WFLIST: failing"
             echo
             echo "Analyze the failing CI runs described in heal-context.json."
-            echo "Classify adequate vs noise (SHA-aware: stale reds under a fresh green are noise)."
-            echo "Print the STRICT JSON verdict; if adequate, create ONE heal issue per the ci_analyst contract."
+            echo "Route each failure: repo-fixable (root cause is a tracked repo file, a PR can turn the newest sha green) vs needs-human (cause outside the repo: secrets, quotas, runner fleet, flaky) vs noise (SHA-aware: stale reds under a fresh green, transient infra, cancellations)."
+            echo "Print the STRICT JSON verdict; if repo-fixable, create ONE heal issue per the ci_analyst contract."
             echo "dryRun=false."
           } > input/ticket.md
           CONTEXT_ID="ci-heal-${{ github.run_id }}"
