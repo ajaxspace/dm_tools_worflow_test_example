@@ -15,17 +15,65 @@ import 'package:test/test.dart';
 /// plus the dedupe gate regex in `ai-teammate.yml` itself.
 const workflowPath = '.github/workflows/ai-teammate.yml';
 
-/// The folded (`>-`) run-name scalar unfolded the way YAML folds:
-/// continuation lines joined with single spaces.
+/// The run-name scalar: an inline value, or a folded (`>-`) block unfolded
+/// the way YAML folds (continuation lines joined with single spaces).
 String runNameValue(String yaml) {
   final lines = yaml.split('\n');
   final start = lines.indexWhere((l) => l.startsWith('run-name:'));
   if (start < 0) return '';
+  final inline = lines[start].substring('run-name:'.length).trim();
   final block = lines
       .sublist(start + 1)
       .takeWhile((l) => l.trim().isEmpty || l.startsWith(' '))
+      .map((l) => l.trim())
       .toList();
-  return block.map((l) => l.trim()).join(' ');
+  if (!RegExp(r'^[>|][-+\d]*$').hasMatch(inline)) return inline;
+  return block.join(' ');
+}
+
+/// Replicates ci-heal's scan acceptance: the first quoted literal holding a
+/// `{` placeholder, cut at the first `{`/`$`, whitespace-stripped. Empty =
+/// no group template at all ("group hidden"); otherwise the prefix must be
+/// a short stable tag (gh-, pr-, param-, geo-).
+String scanGroupPrefix(String runName) {
+  for (final match in RegExp("'[^']*'").allMatches(runName)) {
+    final literal = match.group(0)!.replaceAll("'", '');
+    if (!literal.contains('{')) continue;
+    final cut = literal.indexOf(RegExp(r'[{$]'));
+    return literal.substring(0, cut < 0 ? literal.length : cut)
+        .replaceAll(RegExp(r'\s'), '');
+  }
+  return '';
+}
+
+/// The LEG_WORKFLOWS leg lanes declared in ci-heal.yml (the scan's input):
+/// the block-scalar lines indented under the key. Comment lines at the
+/// key's own indent are YAML structure, not legs.
+List<String> legWorkflows() {
+  final yaml = File('.github/workflows/ci-heal.yml').readAsStringSync();
+  final block = RegExp(r'LEG_WORKFLOWS: \|\n((?: {4,}\S.*\n)+)')
+      .firstMatch(yaml)
+      ?.group(1);
+  if (block == null) return [];
+  return block
+      .split('\n')
+      .map((l) => l.trim())
+      .where((l) => l.isNotEmpty && !l.startsWith('#'))
+      .toList();
+}
+
+/// Workflow file declaring `name: <wfName>` — ci-heal resolves legs to
+/// files the same way (first `name:` match under .github/workflows).
+String? workflowFileFor(String wfName) {
+  final nameRe = RegExp(
+      "^name: ['\"]?" + RegExp.escape(wfName) + "['\"]?\\s*\$",
+      multiLine: true);
+  for (final entity in Directory('.github/workflows').listSync()) {
+    if (entity is File && nameRe.hasMatch(entity.readAsStringSync())) {
+      return entity.path;
+    }
+  }
+  return null;
 }
 
 /// Replicates ci-heal's "group hidden" heuristic: the first quoted literal,
@@ -84,6 +132,104 @@ void main() {
             reason: 'group key must lead every leg/emoji literal');
       }
     });
+  });
+
+  group('run-name contract: Geo Probe leg (gh-55)', () {
+    const geoPath = '.github/workflows/ci-geo.yml';
+    final geoYaml = File(geoPath).readAsStringSync();
+    final geoRunName = runNameValue(geoYaml);
+
+    test('parameterized lane declares a run-name', () {
+      expect(geoYaml, contains('inputs:'),
+          reason: 'workflow_dispatch inputs make Geo Probe parameterized '
+              '(the ci-heal scan keys on inputs:/issues:)');
+      expect(geoRunName, isNotEmpty,
+          reason: '"parameterized but NO run-name" is the exact gh-55 '
+              'non-conformance the scan flags');
+    });
+
+    test('resolved title: first token is the stable geo-<region> group key',
+        () {
+      // Evaluate the template the way GitHub does for a dispatch
+      // (region=eu): the FIRST space-delimited token of the RESOLVED
+      // displayTitle is the group key the legs-health detector uses.
+      final resolved = geoRunName
+          .replaceAll(RegExp(r'\$\{\{\s*inputs\.region\s*\}\}'), 'eu')
+          .replaceAll("'", '');
+      final firstToken = resolved.trim().split(' ').first;
+      expect(firstToken, 'geo-eu',
+          reason: 'the group key must resolve BEFORE any leg marker — a '
+              'malformed expression (e.g. a dropped `\${{` brace) renders '
+              'literally and hides the parameter');
+      expect(geoRunName, contains(r'inputs.region'),
+          reason: 'the group key must embed the dispatch parameter '
+              '(region), not a constant');
+    });
+
+    test('run-name carries no run-varying values', () {
+      final noise = RegExp(r'run_id|run_number|timestamp|head_sha');
+      expect(noise.allMatches(geoRunName), isEmpty);
+    });
+
+    test('ci-heal scan: leading group template passes the literal-prefix rule',
+        () {
+      expect(scanGroupPrefix(geoRunName),
+          matches(RegExp(r'^[A-Za-z0-9_-]{1,6}$')),
+          reason: 'the scan accepts the first quoted `{`-template whose '
+              'literal prefix is a short stable tag (gh-, pr-, param-, geo-)');
+    });
+
+    test('legs-health grouping: one group per region, other regions never reset it',
+        () {
+      String groupKey(String displayTitle) => displayTitle.split(' ').first;
+      final titles = [
+        'geo-eu — geo probe',
+        'geo-eu — geo probe',
+        'geo-us — geo probe',
+        'geo-ap — geo probe',
+      ];
+      expect(titles.map(groupKey).toSet(), hasLength(3),
+          reason: 'one stable key per region: geo-eu, geo-us, geo-ap');
+      expect(titles.where((t) => groupKey(t) == 'geo-eu'), hasLength(2),
+          reason: 'both geo-eu runs land in ONE group — interleaved greens of '
+              'other regions cannot reset the streak');
+    });
+  });
+
+  group('ci-heal scan replay: every LEG_WORKFLOWS leg conforms (gh-55)', () {
+    // Mirrors the "Run-name contract scan" step of ci-heal.yml: a leg
+    // regressing to a missing/hidden group key goes red HERE before the
+    // scanner has to file another heal issue.
+    final legs = legWorkflows();
+
+    test('ci-heal declares the parameterized legs under contract', () {
+      expect(legs, containsAll(['AI Teammate', 'Params Drill', 'Geo Probe']),
+          reason: 'the replay must cover the factory-owned leg lanes');
+    });
+
+    for (final leg in legs) {
+      test('$leg: run-name contract ok', () {
+        final file = workflowFileFor(leg);
+        expect(file, isNotNull,
+            reason: '$leg must map to a workflow file by its name: field');
+        final legYaml = File(file!).readAsStringSync();
+        final parameterized =
+            legYaml.contains('inputs:') || legYaml.contains('issues:');
+        if (!parameterized) return; // plain workflows may use the name
+        final legRunName = runNameValue(legYaml);
+        expect(legRunName, isNotEmpty,
+            reason: '$leg is parameterized but has NO run-name — '
+                'the exact gh-55 non-conformance');
+        final prefix = scanGroupPrefix(legRunName);
+        expect(prefix, isNotEmpty,
+            reason: '$leg has no quoted `{`-template — group hidden');
+        expect(prefix, matches(RegExp(r'^[A-Za-z0-9_-]{1,6}$')),
+            reason: '$leg group template prefix must be a short stable tag');
+        expect(RegExp(r'run_id|run_number|timestamp|head_sha')
+            .allMatches(legRunName), isEmpty,
+            reason: '$leg group token must not embed run-varying values');
+      });
+    }
   });
 
   group('legs-health grouping (displayTitle split on first space)', () {

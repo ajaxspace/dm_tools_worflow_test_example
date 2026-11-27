@@ -1,7 +1,11 @@
 # Geo Probe — a parameterized lane registered in LEG_WORKFLOWS.
-# Drill: its run-name LEADS WITH A LITERAL (emoji), hiding the group key —
-# the run-name contract scanner must flag it and the dev leg must fix it.
+# gh-55: its run-name used to lead with a literal (emoji), hiding the group
+# key — the contract scanner flagged it and the dev leg fixed it (below).
 name: Geo Probe
+
+# Run-name contract: the FIRST token is the stable group key (geo-<region>)
+# — the group detector keys groups on exactly this token.
+run-name: 'geo-${{ inputs.region }} — geo probe'
 
 on:
   workflow_dispatch:
