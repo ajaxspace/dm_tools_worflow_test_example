@@ -48,10 +48,15 @@ String scanGroupPrefix(String runName) {
 
 /// The LEG_WORKFLOWS leg lanes declared in ci-heal.yml (the scan's input):
 /// the block-scalar lines indented under the key. Comment lines at the
-/// key's own indent are YAML structure, not legs.
-List<String> legWorkflows() {
-  final yaml = File('.github/workflows/ci-heal.yml').readAsStringSync();
-  final block = RegExp(r'LEG_WORKFLOWS: \|\n((?: {4,}\S.*\n)+)')
+/// key's own indent are YAML structure, not legs. The block-scalar header
+/// may carry chomping/indent indicators (`|`, `|-`, `|+`, `|2-`) — they
+/// change only trailing-newline handling, never the parsed legs.
+/// Pass [yamlSource] to parse a synthetic YAML document instead of the
+/// committed ci-heal.yml.
+List<String> legWorkflows([String? yamlSource]) {
+  final yaml = yamlSource ??
+      File('.github/workflows/ci-heal.yml').readAsStringSync();
+  final block = RegExp(r'LEG_WORKFLOWS: \|[-+0-9]*\n((?: {4,}\S.*\n)+)')
       .firstMatch(yaml)
       ?.group(1);
   if (block == null) return [];
@@ -205,6 +210,25 @@ void main() {
     test('ci-heal declares the parameterized legs under contract', () {
       expect(legs, containsAll(['AI Teammate', 'Params Drill', 'Geo Probe']),
           reason: 'the replay must cover the factory-owned leg lanes');
+    });
+
+    test(
+        'LEG_WORKFLOWS parser accepts clip (|) and strip (|-) block styles',
+        () {
+      const lines = '    AI Teammate\n    Params Drill\n    Geo Probe\n';
+      const clip = 'env:\n  LEG_WORKFLOWS: |\n$lines';
+      const strip = 'env:\n  LEG_WORKFLOWS: |-\n$lines';
+      for (final style in [clip, strip]) {
+        expect(
+            legWorkflows(style),
+            containsAll(['AI Teammate', 'Params Drill', 'Geo Probe']),
+            reason: 'chomping indicators change only trailing-newline '
+                'handling — the ghost-lane fix (6a1a382) switched ci-heal.yml '
+                'to |- (strip REQUIRED against the empty-lane iteration), '
+                'and the replay must still see all three legs');
+      }
+      expect(legWorkflows('env:\n  OTHER: |\n    x\n'), isEmpty,
+          reason: 'no LEG_WORKFLOWS key = no legs, not a crash');
     });
 
     for (final leg in legs) {
