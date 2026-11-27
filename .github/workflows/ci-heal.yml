@@ -12,6 +12,10 @@ name: 'CI Heal'
 
 on:
   workflow_dispatch: {}
+  schedule:
+    # A4: every 30 minutes (UTC). Healthy state costs nothing — the probe is
+    # read-only gh queries; the analyst/legs fire only on live incidents.
+    - cron: '*/30 * * * *' 
 
 permissions:
   actions: read
@@ -365,11 +369,23 @@ jobs:
           OPENI=$(gh issue list -R "$GITHUB_REPOSITORY" --label ci-heal --state open \
                     --json number,title,createdAt,labels \
                     --jq '[.[] | {number: .number, title: .title, createdAt: .createdAt, workflows: ([.labels[]? | select(.name | startswith("wf:")) | .name[3:]])}]') || OPENI='[]'
+          # B3-lite: per-workflow outcome counts over the recent window —
+          # the analyst weighs failure rates for systemic suspicion.
+          STATS='['
+          FIRST=1
+          for SWF in $(echo "${MONITORED:-}" "$LEG_WORKFLOWS" | tr '\n' ' ' | xargs); do
+            S=$(gh run list -R "$GITHUB_REPOSITORY" --workflow "$SWF" -L 10 --json conclusion \
+                  --jq '{workflow: "'"$SWF"'", window: length, failures: ([.[] | select(.conclusion=="failure" or .conclusion=="timed_out")] | length), greens: ([.[] | select(.conclusion=="success")] | length)}' 2>/dev/null || true)
+            [ -z "$S" ] && continue
+            if [ "$FIRST" -eq 1 ]; then STATS="$STATS$S"; FIRST=0; else STATS="$STATS,$S"; fi
+          done
+          STATS="$STATS]"
           jq -n --arg repo "$GITHUB_REPOSITORY" --arg ma "$MA" \
                 --argjson wfs "$WFS" --argjson runs "$RUNS" \
                 --argjson prev "${PREV:-[]}" --argjson openIncidents "${OPENI:-[]}" \
+                --argjson workflowStats "${STATS:-[]}" \
                 '{targetRepository:$repo, machineAuthor:$ma, dryRun:false,
-                  monitoredWorkflows:$wfs, runs:$runs, previousIncidents:$prev, openIncidents:$openIncidents}' > heal-context.json
+                  monitoredWorkflows:$wfs, runs:$runs, previousIncidents:$prev, openIncidents:$openIncidents, workflowStats:$workflowStats}' > heal-context.json
           jq -c 'del(.runs[].logTail)' heal-context.json   # shape check, sans logs
 
       - name: Install factory kit + CLIs (dmtools, fa)
