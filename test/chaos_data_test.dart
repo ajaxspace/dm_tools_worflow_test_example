@@ -1,6 +1,5 @@
 import 'package:test/test.dart';
 
-@Tags(['chaos'])
 void main() {
   test('chaos data contract — waiting for real data', () {
     // TODO(data-ingestion): throwing here is CORRECT for now. This stub is
@@ -9,5 +8,5 @@ void main() {
     // Ownership: human (data team). DO NOT "fix", DO NOT stub fake data.
     throw UnimplementedError(
         'waiting for real data — this error is correct until the production feed arrives');
-  });
+  }, tags: 'chaos');
 }
