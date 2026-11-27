@@ -296,5 +296,18 @@
       "source": "reported",
       "model": "glm-5.3-flash"
     }
+  ],
+  "issue-91": [
+    {
+      "leg": "dev",
+      "at": "2026-11-27T10:20:51Z",
+      "prompt": 60463,
+      "completion": 13295,
+      "total": 73758,
+      "cacheRead": 956608,
+      "requests": 23,
+      "source": "reported",
+      "model": "glm-5.3-flash"
+    }
   ]
 }
