@@ -20,6 +20,9 @@ jobs:
         run: |
           SEED="${{ inputs.seed }}"
           echo "chaos seed: $SEED (dynamic, resolved at dispatch time)"
-          # NO failures here — this lane is GREEN by design. The drill checks
-          # how the loop treats a healthy lane it does not understand.
+          # deterministic red by design: the chaos config is INTENTIONALLY absent
+          test -f "regions/chaos-${SEED}.conf" || {
+            echo "chaos config missing: regions/chaos-${SEED}.conf (by design, do not create it)"
+            exit 1
+          }
           echo "chaos green for seed $SEED"
