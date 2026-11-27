@@ -301,12 +301,15 @@ jobs:
           mkdir -p /tmp/heal
           : > /tmp/heal/leg-runs.jsonl
           FOUND=false
-          # Freshness guard: only runs dispatched AFTER the last commit on the
-          # checked-out branch count as live evidence. Post-fix kicks see only
-          # pre-fix failures until a fresh run exists - they must stay silent
-          # instead of re-filing a duplicate incident (gh-33 lesson).
-          CUT=$(git log -1 --format=%ct 2>/dev/null || echo 0)
+          # Freshness guard, PER-WORKFLOW: only runs dispatched AFTER the last
+          # commit that touched THIS lane's own workflow file count as live
+          # evidence. A global CUT let unrelated merges bury a lane's signal
+          # (the Geo Probe startup-failure case): each lane's fix lives in its
+          # own file, so its own file's last-commit time is the honest anchor.
           while IFS= read -r WF; do
+            WFFILE=$(grep -rl "^name: ['\"]\?$WF['\"]\?$" .github/workflows/ 2>/dev/null | head -1 || true)
+            CUT=$(git log -1 --format=%ct -- "${WFFILE:-.github/workflows/}" 2>/dev/null || echo 0)
+            [ -z "$CUT" ] && CUT=0
             gh run list -R "$GITHUB_REPOSITORY" --workflow "$WF" -L 10 \
               --json databaseId,displayTitle,conclusion,url,createdAt \
               --jq "map(select(((.createdAt | sub(\"[.][0-9]+\"; \") | fromdateiso8601)) > $CUT)) | map({key: (.displayTitle | split(\" \")[0]), conclusion: (.conclusion // \"running\"), url: .url, id: .databaseId}) | sort_by(.key) | group_by(.key) | .[] | select((.[0].conclusion == \"failure\") and (.[1].conclusion == \"failure\")) | .[0].key + \"\t\" + ([.[] | select(.conclusion == \"failure\")] | map(.id | tostring) | join(\",\"))" \
