@@ -42,6 +42,7 @@ env:
     Params Drill
     Geo Probe
     Chaos Drill
+    Code Drill
   # Sickness threshold: N CONSECUTIVE latest failures.
   FAIL_STREAK: '2'
   # Failing-job log tail per run handed to the analyst.

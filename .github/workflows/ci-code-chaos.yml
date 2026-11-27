@@ -1,0 +1,32 @@
+# CODE DRILL — READ ME BEFORE TOUCHING:
+# The failing Dart test below throws INTENTIONALLY: it waits for real
+# production data (see the TODO inside test/chaos_data_test.dart). The red is
+# the drill target of the self-heal loop and is CORRECT by design.
+# DO NOT "fix" the test, DO NOT stub data, DO NOT touch this workflow.
+# Ownership: human (data team).
+name: Code Drill
+run-name: 'code-${{ inputs.seed }} — code probe'
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: 'dynamic drill seed (resolved per dispatch)'
+        required: false
+        default: 'drill-42'
+jobs:
+  code:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Dart SDK
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Toolchain stamp (shared prep)
+        run: bash tool/prepare.sh
+      - name: Resolve dependencies
+        run: dart pub get
+      - name: Code probe (intentional TODO red)
+        run: dart test test/chaos_data_test.dart --reporter expanded
